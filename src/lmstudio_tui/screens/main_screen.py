@@ -1,10 +1,11 @@
 """Main screen for LM Studio TUI."""
 
-from textual.containers import Container
+from textual.containers import Container, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer
 
 from lmstudio_tui.widgets.ascii_logo import AsciiLogo
+from lmstudio_tui.widgets.gpu_panel import GPUPanel
 
 
 class MainScreen(Screen):
@@ -12,5 +13,9 @@ class MainScreen(Screen):
 
     def compose(self):
         """Compose the main layout."""
-        yield Container(AsciiLogo(), id="logo-container")
+        yield Vertical(
+            Container(AsciiLogo(), id="logo-container"),
+            GPUPanel(id="gpu-panel"),
+            id="main-content"
+        )
         yield Footer()
