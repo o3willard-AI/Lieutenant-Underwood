@@ -2,7 +2,6 @@
 
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import List
 
 import pynvml
 
