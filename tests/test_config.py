@@ -1,4 +1,5 @@
 """Tests for TOML configuration loader."""
+import logging
 import tempfile
 from pathlib import Path
 
@@ -14,7 +15,7 @@ def test_default_config():
     assert cfg.server.port == 1234
     assert cfg.server.timeout == 10.0
     assert cfg.server.retry is True
-    assert cfg.server.api_token_path == "~/.lmstudio/token"
+    assert cfg.server.api_token_path is None  # Now None, default handled by property
     assert cfg.server.verify_ssl is True
 
     # GPU defaults from SCHEMA.toml
@@ -26,6 +27,39 @@ def test_default_config():
     assert cfg.gpu.alert_thresholds.temp_critical == 90
     assert cfg.gpu.alert_thresholds.vram_warning == 95
     assert cfg.gpu.alert_thresholds.vram_critical == 98
+
+
+def test_default_api_token_path_resolution():
+    """Default API token path resolves to ~/.lmstudio/token when None."""
+    cfg = AppConfig.load(None)
+    
+    # api_token_path is None in config
+    assert cfg.server.api_token_path is None
+    
+    # But resolved path points to default location
+    resolved = cfg.server.resolved_api_token_path
+    assert resolved is not None
+    assert resolved == Path.home() / ".lmstudio" / "token"
+
+
+def test_custom_api_token_path():
+    """Custom API token path is preserved."""
+    toml_content = """
+[server]
+api_token_path = "/custom/path/token"
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(toml_content)
+        f.flush()
+        temp_path = Path(f.name)
+
+    try:
+        cfg = AppConfig.load(temp_path)
+        assert cfg.server.api_token_path == "/custom/path/token"
+        assert cfg.server.resolved_api_token_path == Path("/custom/path/token")
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def test_load_from_toml():
@@ -139,3 +173,58 @@ def test_missing_file_returns_defaults():
     assert cfg.server.host == "localhost"
     assert cfg.server.port == 1234
     assert cfg.gpu.monitoring_enabled is True
+
+
+def test_invalid_toml_logs_warning(caplog):
+    """Invalid TOML file logs a warning and returns defaults."""
+    invalid_toml = """
+[server
+host = "invalid"  # Missing closing bracket
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(invalid_toml)
+        f.flush()
+        temp_path = Path(f.name)
+
+    try:
+        with caplog.at_level(logging.WARNING):
+            cfg = AppConfig.load(temp_path)
+
+        # Should return defaults
+        assert cfg.server.host == "localhost"
+        assert cfg.server.port == 1234
+
+        # Should log a warning
+        assert "invalid TOML" in caplog.text.lower() or "config file" in caplog.text.lower()
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def test_partial_config_loads():
+    """Partial config file fills in missing values with defaults."""
+    partial_toml = """
+[server]
+host = "custom.host"
+port = 8080
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(partial_toml)
+        f.flush()
+        temp_path = Path(f.name)
+
+    try:
+        cfg = AppConfig.load(temp_path)
+
+        # Loaded values
+        assert cfg.server.host == "custom.host"
+        assert cfg.server.port == 8080
+
+        # Default values still present
+        assert cfg.server.timeout == 10.0
+        assert cfg.server.retry is True
+        assert cfg.gpu.monitoring_enabled is True
+        assert cfg.gpu.alert_thresholds.temp_warning == 80
+    finally:
+        temp_path.unlink(missing_ok=True)

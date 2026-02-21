@@ -1,11 +1,15 @@
 """TOML configuration management for LM Studio TUI."""
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import dacite
 import tomli
 import tomli_w
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -16,8 +20,15 @@ class ServerConfig:
     port: int = 1234
     timeout: float = 10.0
     retry: bool = True
-    api_token_path: Optional[str] = "~/.lmstudio/token"
+    api_token_path: Optional[str] = None
     verify_ssl: bool = True
+
+    @property
+    def resolved_api_token_path(self) -> Optional[Path]:
+        """Return resolved API token path, expanding ~ if set."""
+        if self.api_token_path is None:
+            return Path.home() / ".lmstudio" / "token"
+        return Path(self.api_token_path).expanduser()
 
 
 @dataclass
@@ -66,41 +77,57 @@ class AppConfig:
 
         try:
             with open(path, "rb") as f:
-                data = tomli.load(f)
-        except (OSError, tomli.TOMLDecodeError):
+                raw_data = tomli.load(f)
+        except tomli.TOMLDecodeError as e:
+            logger.warning(
+                "Config file %s has invalid TOML: %s. Using defaults.", path, e
+            )
+            return cls()
+        except OSError as e:
+            logger.warning("Cannot read config file %s: %s. Using defaults.", path, e)
             return cls()
 
-        # Parse server config
-        server_data = data.get("server", {})
-        server = ServerConfig(
-            host=server_data.get("host", "localhost"),
-            port=server_data.get("port", 1234),
-            timeout=server_data.get("timeout", 10.0),
-            retry=server_data.get("retry", True),
-            api_token_path=server_data.get("api_token_path", "~/.lmstudio/token"),
-            verify_ssl=server_data.get("verify_ssl", True),
-        )
+        # Transform flat TOML structure to nested dataclass structure
+        data: dict = {}
 
-        # Parse GPU config
-        gpu_data = data.get("gpu", {})
-        alerts_data = data.get("alerts", {})
-        temp_data = alerts_data.get("temperature", {})
-        vram_data = alerts_data.get("vram", {})
+        # Server config (direct mapping)
+        if "server" in raw_data:
+            data["server"] = raw_data["server"]
 
-        alert_thresholds = AlertThresholds(
-            temp_warning=temp_data.get("warning", 80),
-            temp_critical=temp_data.get("critical", 90),
-            vram_warning=vram_data.get("warning", 95),
-            vram_critical=vram_data.get("critical", 98),
-        )
+        # GPU config with nested alert thresholds
+        if "gpu" in raw_data or "alerts" in raw_data:
+            data["gpu"] = dict(raw_data.get("gpu", {}))
 
-        gpu = GPUConfig(
-            monitoring_enabled=gpu_data.get("monitoring_enabled", True),
-            update_frequency=gpu_data.get("update_frequency", 1.0),
-            alert_thresholds=alert_thresholds,
-        )
+            # Map alerts.temperature and alerts.vram into alert_thresholds
+            # TOML: alerts.temperature.warning -> alert_thresholds.temp_warning
+            alerts_data = raw_data.get("alerts", {})
+            temp_data = alerts_data.get("temperature", {})
+            vram_data = alerts_data.get("vram", {})
 
-        return cls(server=server, gpu=gpu)
+            alert_thresholds = {}
+            if "warning" in temp_data:
+                alert_thresholds["temp_warning"] = temp_data["warning"]
+            if "critical" in temp_data:
+                alert_thresholds["temp_critical"] = temp_data["critical"]
+            if "warning" in vram_data:
+                alert_thresholds["vram_warning"] = vram_data["warning"]
+            if "critical" in vram_data:
+                alert_thresholds["vram_critical"] = vram_data["critical"]
+
+            if alert_thresholds:
+                data["gpu"]["alert_thresholds"] = alert_thresholds
+
+        try:
+            return dacite.from_dict(
+                data_class=cls,
+                data=data,
+                config=dacite.Config(strict=False),
+            )
+        except dacite.DaciteError as e:
+            logger.warning(
+                "Config file %s has invalid structure: %s. Using defaults.", path, e
+            )
+            return cls()
 
     def save(self, path: Path) -> None:
         """Save configuration to TOML file.
