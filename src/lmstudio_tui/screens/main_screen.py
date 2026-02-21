@@ -2,7 +2,9 @@
 
 from textual.containers import Container
 from textual.screen import Screen
-from textual.widgets import Footer, Label
+from textual.widgets import Footer
+
+from lmstudio_tui.widgets.ascii_logo import AsciiLogo
 
 
 class MainScreen(Screen):
@@ -10,5 +12,5 @@ class MainScreen(Screen):
 
     def compose(self):
         """Compose the main layout."""
-        yield Container(Label("LM Studio TUI - Press 'q' to quit"), id="placeholder")
+        yield Container(AsciiLogo(), id="logo-container")
         yield Footer()
