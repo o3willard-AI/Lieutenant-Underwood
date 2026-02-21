@@ -10,8 +10,8 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 ## Features
 
 - **Real-time GPU Monitoring** — Live metrics for all NVIDIA GPUs (utilization, VRAM, temperature, power)
+- **Model Management Panel** — Browse, load, and unload models with visual status indicators
 - **Reactive State Management** — Custom ReactiveVar pattern for automatic UI updates
-- **Model Management** — Browse and manage LM Studio models via REST API
 - **Multi-agent LAN Discovery** — Auto-discover LM Studio servers on local network (mDNS/Zeroconf)
 - **Alert Thresholds** — Configurable warnings for GPU temperature and VRAM usage
 - **Customizable Keybindings** — Vim-like shortcuts for power users
@@ -64,6 +64,29 @@ make format
 # Type check
 make typecheck
 ```
+
+---
+
+## Keybindings
+
+### Global
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit application |
+| `r` | Refresh all data |
+| `?` | Show help |
+| `Tab` | Focus next panel |
+
+### Models Panel
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate model list |
+| `Enter` | Open model details |
+| `l` | Load selected model |
+| `u` | Unload selected model |
+| `r` | Refresh models list |
 
 ---
 

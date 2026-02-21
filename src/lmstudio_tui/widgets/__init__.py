@@ -7,11 +7,13 @@ from lmstudio_tui.widgets.gpu_panel import (
     TempDisplay,
     VRAMBar,
 )
+from lmstudio_tui.widgets.models_panel import ModelsPanel
 
 __all__ = [
     "AsciiLogo",
     "GPUCard",
     "GPUPanel",
+    "ModelsPanel",
     "TempDisplay",
     "VRAMBar",
 ]

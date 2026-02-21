@@ -1,21 +1,48 @@
 """Main screen for LM Studio TUI."""
 
-from textual.containers import Container, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer
 
 from lmstudio_tui.widgets.ascii_logo import AsciiLogo
 from lmstudio_tui.widgets.gpu_panel import GPUPanel
+from lmstudio_tui.widgets.models_panel import ModelsPanel
 
 
 class MainScreen(Screen):
-    """Main dashboard screen."""
+    """Main dashboard screen with GPU and Models panels."""
+
+    DEFAULT_CSS = """
+    MainScreen {
+        layout: vertical;
+    }
+    #logo-container {
+        height: auto;
+        content-align: center middle;
+    }
+    #content-row {
+        width: 100%;
+        height: 1fr;
+    }
+    #gpu-panel {
+        width: 40%;
+        height: 100%;
+    }
+    #models-panel {
+        width: 60%;
+        height: 100%;
+    }
+    """
 
     def compose(self):
         """Compose the main layout."""
         yield Vertical(
             Container(AsciiLogo(), id="logo-container"),
-            GPUPanel(id="gpu-panel"),
+            Horizontal(
+                GPUPanel(id="gpu-panel"),
+                ModelsPanel(id="models-panel"),
+                id="content-row"
+            ),
             id="main-content"
         )
         yield Footer()

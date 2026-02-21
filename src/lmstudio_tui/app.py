@@ -17,6 +17,9 @@ class LMStudioApp(App):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("?", "help", "Help"),
+        ("tab", "focus_next", "Next Panel"),
+        ("l", "load_model", "Load Model"),
+        ("u", "unload_model", "Unload Model"),
     ]
 
     def __init__(self, *args, **kwargs):
@@ -152,7 +155,29 @@ class LMStudioApp(App):
 
     def action_help(self) -> None:
         """Show help."""
-        self.notify("Help: Press q to quit, r to refresh")
+        self.notify(
+            "Help: q=quit, r=refresh, l=load, u=unload, Enter=details, Tab=next panel, ?=help"
+        )
+
+    def action_focus_next(self) -> None:
+        """Move focus to the next panel."""
+        self.screen.focus_next()
+
+    def action_load_model(self) -> None:
+        """Load the currently selected model."""
+        # Find the models panel and trigger load action
+        from lmstudio_tui.widgets.models_panel import ModelsPanel
+        models_panel = self.query_one(ModelsPanel)
+        if models_panel:
+            models_panel.run_worker(models_panel.action_load_model())
+
+    def action_unload_model(self) -> None:
+        """Unload the currently selected model."""
+        # Find the models panel and trigger unload action
+        from lmstudio_tui.widgets.models_panel import ModelsPanel
+        models_panel = self.query_one(ModelsPanel)
+        if models_panel:
+            models_panel.run_worker(models_panel.action_unload_model())
 
     async def on_shutdown(self) -> None:
         """App shutdown - cleanup resources."""
