@@ -68,7 +68,7 @@ target-version = ["py39", "py310", "py311", "py312"]
 line-length = 88
 target-version = "py39"
 select = ["E", "F", "I", "W", "N", "D", "UP", "B", "C4", "SIM"]
-ignore = ["D100", "D104"]
+ignore = ["D100", "D104", "UP045", "W293", "D105"]
 
 [tool.ruff.pydocstyle]
 convention = "google"

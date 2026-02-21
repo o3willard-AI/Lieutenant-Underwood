@@ -138,15 +138,19 @@ class AppConfig:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Only include api_token_path if it's set (not None)
+        server_data = {
+            "host": self.server.host,
+            "port": self.server.port,
+            "timeout": self.server.timeout,
+            "retry": self.server.retry,
+            "verify_ssl": self.server.verify_ssl,
+        }
+        if self.server.api_token_path is not None:
+            server_data["api_token_path"] = self.server.api_token_path
+
         data = {
-            "server": {
-                "host": self.server.host,
-                "port": self.server.port,
-                "timeout": self.server.timeout,
-                "retry": self.server.retry,
-                "api_token_path": self.server.api_token_path,
-                "verify_ssl": self.server.verify_ssl,
-            },
+            "server": server_data,
             "gpu": {
                 "monitoring_enabled": self.gpu.monitoring_enabled,
                 "update_frequency": self.gpu.update_frequency,
