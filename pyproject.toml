@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lmstudio-tui"
+version = "0.1.0"
+description = "Terminal UI for LM Studio headless server monitoring and management"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "LM Studio TUI Team"},
+]
+keywords = ["lmstudio", "llm", "tui", "terminal", "gpu", "monitoring"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: Terminals",
+]
+
+dependencies = [
+    "textual>=0.45.0",
+    "pynvml>=11.5.0",
+    "httpx>=0.25.0",
+    "tomli>=2.0.0",
+    "tomli-w>=1.0.0",
+    "zeroconf>=0.60.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+lmstudio-tui = "lmstudio_tui.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/lmstudio-tui/lmstudio-tui"
+Repository = "https://github.com/lmstudio-tui/lmstudio-tui"
+Issues = "https://github.com/lmstudio-tui/lmstudio-tui/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lmstudio_tui"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+select = ["E", "F", "I", "W", "N", "D", "UP", "B", "C4", "SIM"]
+ignore = ["D100", "D104"]
+
+[tool.ruff.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

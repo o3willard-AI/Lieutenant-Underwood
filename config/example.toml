@@ -1,0 +1,619 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# LM Studio TUI Configuration
+# Version: 1.0.0
+# Location: ~/.config/lmstudio-tui/config.toml
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Server Connection
+# Connection settings for the LM Studio headless server
+# ─────────────────────────────────────────────────────────────────────────────
+[server]
+# Hostname or IP address of the LM Studio server
+# Default: "localhost"
+host = "localhost"
+
+# API port for LM Studio server
+# Default: 1234
+port = 1234
+
+# API base path (for reverse proxy setups)
+# Default: "/v1"
+api_base = "/v1"
+
+# Connection timeout in seconds
+# Default: 10.0
+timeout = 10.0
+
+# Retry failed connections
+# Default: true
+retry = true
+
+# Retry backoff: initial delay, max delay, multiplier
+# Default: [1.0, 30.0, 2.0] (start at 1s, max 30s, 2x each retry)
+retry_backoff = [1.0, 30.0, 2.0]
+
+# Path to API token file (if using authentication)
+# Set to null to disable
+# Default: "~/.lmstudio/token"
+api_token_path = "~/.lmstudio/token"
+
+# Verify SSL certificates
+# Default: true (set to false for self-signed certs in dev)
+verify_ssl = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Display & UI
+# Visual appearance and refresh settings
+# ─────────────────────────────────────────────────────────────────────────────
+[display]
+# Theme setting - dark mode only (no light mode per design)
+# Options: "dark"
+# Default: "dark"
+theme = "dark"
+
+# Color accent (primary UI color)
+# Options: "cyan", "blue", "green", "magenta", "orange", "purple"
+# Default: "cyan"
+accent_color = "cyan"
+
+# Global refresh rate in seconds for live data
+# Lower = more responsive, higher CPU usage
+# Default: 1.0
+refresh_rate = 1.0
+
+# Show sparkline charts for metrics
+# Default: true
+show_sparklines = true
+
+# Sparkline history length (number of data points)
+# Default: 60
+sparkline_history = 60
+
+# Show animations (progress bars, transitions)
+# Default: true
+animations = true
+
+# Compact mode - reduces padding and font sizes
+# Default: false
+compact_mode = false
+
+# Frame rate limit for UI updates (0 = unlimited)
+# Default: 30
+fps_limit = 30
+
+# Date/time format for timestamps
+# Default: "%Y-%m-%d %H:%M:%S"
+datetime_format = "%Y-%m-%d %H:%M:%S"
+
+# Uptime display format
+# Options: "human" (3d 2h 15m), "precise" (74:15:32)
+# Default: "human"
+uptime_format = "human"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GPU Monitoring
+# NVIDIA GPU monitoring via PyNVML
+# ─────────────────────────────────────────────────────────────────────────────
+[gpu]
+# Enable GPU monitoring
+# Default: true
+monitoring_enabled = true
+
+# Update frequency in seconds
+# Default: 1.0
+update_frequency = 1.0
+
+# Which GPUs to monitor (empty = all)
+# Example: [0, 1] to monitor only first two GPUs
+# Default: [] (all GPUs)
+gpu_indices = []
+
+# Show per-process GPU usage
+# Default: true
+show_processes = true
+
+# Number of top processes to show per GPU
+# Default: 5
+max_processes = 5
+
+# Temperature unit
+# Options: "celsius", "fahrenheit"
+# Default: "celsius"
+temperature_unit = "celsius"
+
+# Power unit
+# Options: "watts", "milliwatts"
+# Default: "watts"
+power_unit = "watts"
+
+# Show PCIe bandwidth metrics
+# Default: false (saves polling overhead)
+show_pcie_stats = false
+
+# PCIe update frequency (only if show_pcie_stats = true)
+# Default: 10.0
+pcie_update_frequency = 10.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alert Thresholds
+# Visual and optional audio alerts for critical conditions
+# ─────────────────────────────────────────────────────────────────────────────
+[alerts]
+# Master switch for alerts
+# Default: true
+enabled = true
+
+# Enable visual alerts (flashing, color changes)
+# Default: true
+visual = true
+
+# Enable terminal bell/beep on critical alerts
+# Default: false
+sound = false
+
+# Minimum severity to trigger sound
+# Options: "warning", "critical"
+# Default: "critical"
+sound_severity = "critical"
+
+# Deduplicate alerts (don't repeat same alert within window)
+# Default: true
+deduplicate = true
+
+# Deduplication window in seconds
+# Default: 60
+dedup_window = 60
+
+# Auto-dismiss alerts after seconds (0 = never)
+# Default: 0
+auto_dismiss = 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GPU Temperature Alerts
+# ─────────────────────────────────────────────────────────────────────────────
+[alerts.temperature]
+# Warning threshold in Celsius
+# Default: 80 (per PRD)
+warning = 80
+
+# Critical threshold in Celsius
+# Default: 90
+critical = 90
+
+# Emergency shutdown threshold (0 = disabled)
+# WARNING: This will attempt to unload models
+# Default: 95
+emergency = 95
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VRAM Usage Alerts
+# ─────────────────────────────────────────────────────────────────────────────
+[alerts.vram]
+# Warning threshold as percentage
+# Default: 95 (per PRD)
+warning = 95
+
+# Critical threshold as percentage
+# Default: 98
+critical = 98
+
+# Suggest model unload when critical
+# Default: true
+suggest_unload = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inference Alerts
+# ─────────────────────────────────────────────────────────────────────────────
+[alerts.inference]
+# Warning threshold for error rate percentage
+# Default: 5.0
+error_rate_warning = 5.0
+
+# Critical threshold for error rate percentage
+# Default: 20.0
+error_rate_critical = 20.0
+
+# Latency warning threshold in seconds
+# Default: 5.0
+latency_warning = 5.0
+
+# Latency critical threshold in seconds
+# Default: 10.0
+latency_critical = 10.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Discovery
+# Multi-agent LAN configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[discovery]
+# Enable mDNS discovery (primary method)
+# Default: true
+mdns_enabled = true
+
+# mDNS service type to discover
+# Default: "_lmstudio._tcp.local."
+mdns_service_type = "_lmstudio._tcp.local."
+
+# Discovery timeout in seconds
+# Default: 5.0
+mdns_timeout = 5.0
+
+# Rescan interval in seconds (0 = manual only)
+# Default: 30
+mdns_rescan_interval = 30
+
+# Include localhost in discovery
+# Default: false
+include_localhost = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual Agent Configuration
+# For agents not discoverable via mDNS
+# ─────────────────────────────────────────────────────────────────────────────
+[[discovery.manual_agents]]
+# Display name for the agent
+name = "remote-builder"
+
+# Hostname or IP address
+host = "192.168.1.100"
+
+# API port
+port = 1234
+
+# Use HTTPS instead of HTTP
+# Default: false
+https = false
+
+# API token (if required)
+# Can also use api_token_path
+token = ""
+
+# API token file path (alternative to inline token)
+api_token_path = ""
+
+# Agent role/tag for grouping
+# Default: ""
+tags = ["builder", "gpu-0"]
+
+# Prefer specific GPU (GPU index on remote)
+# Default: null (auto)
+gpu_preference = 0
+
+# Timeout for this specific agent
+# Default: 10.0
+timeout = 10.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Second example manual agent (commented out)
+# ─────────────────────────────────────────────────────────────────────────────
+# [[discovery.manual_agents]]
+# name = "validator-node"
+# host = "192.168.1.101"
+# port = 1234
+# tags = ["validator"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model Management
+# Configuration for model browsing, loading, and downloading
+# ─────────────────────────────────────────────────────────────────────────────
+[models]
+# Local models directory
+# Default: "~/.lmstudio/models"
+models_path = "~/.lmstudio/models"
+
+# Default quantization preference
+# Options: "Q4_K_M", "Q4_0", "Q5_K_M", "Q8_0", "FP16", null (any)
+# Default: "Q4_K_M"
+default_quantization = "Q4_K_M"
+
+# Prefer smaller models when multiple quantizations available
+# Default: false
+prefer_efficiency = false
+
+# Auto-unload previous model when loading new one
+# Default: false
+auto_unload = false
+
+# JIT (Just-In-Time) loading - load on first request
+# Default: true
+jit_loading = true
+
+# Default context length (null = auto from VRAM)
+# Default: null
+default_context_length = null
+
+# Max context length override (null = model max)
+# Default: null
+max_context_length = null
+
+# Show GGUF metadata in model details
+# Default: true
+show_gguf_metadata = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Model Download Sources
+# HuggingFace and LM Studio Hub integration
+# ─────────────────────────────────────────────────────────────────────────────
+[models.download]
+# Enable model downloads from TUI
+# Default: true
+enabled = true
+
+# Download sources priority order
+# Default: ["huggingface", "lmstudio"]
+sources = ["huggingface", "lmstudio"]
+
+# Default download directory (null = use models_path)
+# Default: null
+download_path = null
+
+# Verify checksums after download
+# Default: true
+verify_checksums = true
+
+# Resume interrupted downloads
+# Default: true
+resume_downloads = true
+
+# Maximum concurrent downloads
+# Default: 2
+max_concurrent = 2
+
+# Connection timeout for downloads in seconds
+# Default: 30.0
+timeout = 30.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HuggingFace Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[models.download.huggingface]
+# Enable HuggingFace as download source
+# Default: true
+enabled = true
+
+# HuggingFace API endpoint
+# Default: "https://huggingface.co"
+endpoint = "https://huggingface.co"
+
+# HuggingFace token for gated models
+# Set to null to use anonymous access
+# Default: null
+token = null
+
+# Token file path (alternative to inline token)
+# Default: "~/.huggingface/token"
+token_path = "~/.huggingface/token"
+
+# Default organization/user to browse
+# Default: null (show trending)
+default_user = null
+
+# Cache HuggingFace API responses
+# Default: true
+cache_api = true
+
+# Cache duration in seconds
+# Default: 300 (5 minutes)
+cache_duration = 300
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LM Studio Hub Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[models.download.lmstudio]
+# Enable LM Studio Hub as download source
+# Default: true
+enabled = true
+
+# LM Studio Hub API endpoint
+# Default: "https://lmstudio.ai/api"
+endpoint = "https://lmstudio.ai/api"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Plugin System
+# ─────────────────────────────────────────────────────────────────────────────
+[plugins]
+# Enable plugin system
+# Default: true
+enabled = true
+
+# Central plugin repository URL
+# Default: "https://plugins.lmstudio-tui.dev"
+central_repo = "https://plugins.lmstudio-tui.dev"
+
+# Check for plugin updates automatically
+# Default: true
+auto_update = true
+
+# Update check interval in seconds
+# Default: 86400 (24 hours)
+check_interval = 86400
+
+# Install plugins to user directory
+# Default: "~/.local/share/lmstudio-tui/plugins"
+install_path = "~/.local/share/lmstudio-tui/plugins"
+
+# Allow plugins from unofficial sources
+# SECURITY: Only enable if you trust the source
+# Default: false
+allow_unofficial = false
+
+# Plugin sandboxing level
+# Options: "strict", "relaxed", "none"
+# Default: "strict"
+sandbox_level = "strict"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Installed Plugins
+# Define installed plugins and their configuration
+# ─────────────────────────────────────────────────────────────────────────────
+[[plugins.installed]]
+# Plugin name (from repository)
+name = "prometheus-panel"
+
+# Installed version
+version = "1.0.0"
+
+# Enable this plugin
+# Default: true
+enabled = true
+
+# Plugin-specific configuration
+[plugins.installed.config]
+endpoint = "http://localhost:9090"
+refresh_interval = 5
+metrics = ["requests_rate", "latency", "errors"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Keyboard Shortcuts
+# Customize key bindings (null = use default)
+# ─────────────────────────────────────────────────────────────────────────────
+[keybindings]
+# Global shortcuts
+quit = "q"
+refresh = "r"
+help = "?"
+search = "/"
+
+# Navigation
+panel_next = "tab"
+panel_prev = "shift+tab"
+nav_up = "k"
+nav_down = "j"
+nav_left = "h"
+nav_right = "l"
+
+# Panel shortcuts
+gpu_panel = "g"
+models_panel = "m"
+agents_panel = "a"
+metrics_panel = "s"
+
+# GPU panel actions
+gpu_details = "g"
+gpu_thermal = "t"
+gpu_power = "p"
+gpu_processes = "d"
+gpu_alerts = "ctrl+a"
+
+# Model panel actions
+model_load = "l"
+model_unload = "u"
+model_config = "c"
+model_filter = "f"
+model_download = "d"
+model_verify = "v"
+
+# Agent panel actions
+agent_manage = "a"
+agent_sort = "s"
+agent_kill = "k"
+agent_logs = "L"
+agent_manual = "m"
+
+# Quick actions
+quick_load = "1"
+quick_unload = "2"
+quick_chat = "3"
+quick_config = "4"
+quick_download = "d"
+quick_verify = "v"
+quick_plugins = "p"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+[logging]
+# Log level
+# Options: "debug", "info", "warning", "error", "critical"
+# Default: "info"
+level = "info"
+
+# Log file path (null = stderr only)
+# Default: "~/.local/share/lmstudio-tui/log.txt"
+file = "~/.local/share/lmstudio-tui/log.txt"
+
+# Maximum log file size in MB
+# Default: 10
+max_size_mb = 10
+
+# Number of backup log files to keep
+# Default: 3
+backup_count = 3
+
+# Log format string
+# Default: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Include source file:line in logs
+# Default: false
+debug_info = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Performance Tuning
+# Advanced settings for resource optimization
+# ─────────────────────────────────────────────────────────────────────────────
+[performance]
+# Max memory usage in MB (0 = unlimited)
+# Default: 0
+max_memory_mb = 0
+
+# Disable sparklines on low-memory systems
+# Default: false
+low_memory_mode = false
+
+# Background worker threads
+# Default: 2
+worker_threads = 2
+
+# HTTP connection pool size
+# Default: 10
+http_pool_size = 10
+
+# HTTP keep-alive timeout in seconds
+# Default: 30
+http_keepalive = 30
+
+# Cache GPU metrics for N milliseconds (0 = no cache)
+# Default: 0
+gpu_cache_ms = 0
+
+# Batch UI updates (reduce render frequency)
+# Default: false
+batch_updates = false
+
+# Batch interval in milliseconds
+# Default: 100
+batch_interval_ms = 100
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Developer Options
+# ─────────────────────────────────────────────────────────────────────────────
+[developer]
+# Enable debug mode (verbose logging, inspector)
+# Default: false
+debug = false
+
+# Enable textual console for debugging
+# Default: false
+console = false
+
+# Show FPS counter
+# Default: false
+show_fps = false
+
+# Export CSS on startup for debugging
+# Default: false
+export_css = false
+
+# Simulate GPU metrics (for testing without GPU)
+# Default: false
+mock_gpu = false
+
+# Simulate agent responses
+# Default: false
+mock_agents = false
+
+# Mock data update interval
+# Default: 2.0
+mock_interval = 2.0
