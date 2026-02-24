@@ -17,7 +17,7 @@ class ServerConfig:
     """Server connection configuration."""
 
     host: str = "localhost"
-    port: int = 1234
+    port: int = 1235  # Local LM Studio port (external is 1234)
     timeout: float = 10.0
     retry: bool = True
     api_token_path: Optional[str] = None

@@ -19,6 +19,10 @@ class ModelInfo:
     name: str
     size: int  # bytes
     loaded: bool
+    quantization: str = "-"
+    max_context_length: int = 0
+    loaded_context_length: int = 0
+    instance_id: Optional[str] = None  # Required for unload
 
 
 class LMStudioClient:
@@ -61,9 +65,9 @@ class LMStudioClient:
         )
 
     async def get_models(self) -> list[ModelInfo]:
-        """Get list of available models.
+        """Get list of available models with loaded status.
 
-        GET /v1/models
+        Uses /api/v1/models which provides size, quantization, and loaded_instances.
 
         Returns:
             List of ModelInfo objects.
@@ -72,17 +76,33 @@ class LMStudioClient:
             httpx.HTTPError: If the request fails.
         """
         try:
-            response = await self._client.get("/v1/models")
+            # Use v1 API for complete model info
+            response = await self._client.get("/api/v1/models")
             response.raise_for_status()
             data = response.json()
 
             models = []
-            for item in data.get("data", []):
-                # Handle both 'id' and 'model' fields for compatibility
-                model_id = item.get("id") or item.get("model", "")
-                model_name = item.get("name", model_id)
-                size = item.get("size", 0)
-                loaded = item.get("loaded", False)
+            for item in data.get("models", []):
+                model_id = item.get("key", "")
+                model_name = item.get("display_name", model_id)
+                size = item.get("size_bytes", 0)
+                
+                # Get quantization name from object
+                quant_obj = item.get("quantization", {})
+                quantization = quant_obj.get("name", "-")
+                
+                max_context = item.get("max_context_length", 0)
+                
+                # Check loaded_instances for loaded state and instance_id
+                loaded_instances = item.get("loaded_instances", [])
+                loaded = len(loaded_instances) > 0
+                instance_id = None
+                loaded_context = 0
+                
+                if loaded and loaded_instances:
+                    instance_id = loaded_instances[0].get("id")
+                    config = loaded_instances[0].get("config", {})
+                    loaded_context = config.get("context_length", 0)
 
                 models.append(
                     ModelInfo(
@@ -90,6 +110,10 @@ class LMStudioClient:
                         name=model_name,
                         size=size,
                         loaded=loaded,
+                        quantization=quantization,
+                        max_context_length=max_context,
+                        loaded_context_length=loaded_context,
+                        instance_id=instance_id,
                     )
                 )
 
@@ -98,13 +122,14 @@ class LMStudioClient:
             logger.error(f"Failed to get models: {e}")
             raise
 
-    async def load_model(self, model_id: str) -> bool:
+    async def load_model(self, model_id: str, context_length: Optional[int] = None) -> bool:
         """Load a model into memory.
 
         POST /v1/models/load
 
         Args:
             model_id: Identifier of the model to load.
+            context_length: Context window size (defaults to model's max if not specified).
 
         Returns:
             True if the model was loaded successfully.
@@ -112,24 +137,37 @@ class LMStudioClient:
         Raises:
             httpx.HTTPError: If the request fails.
         """
+        logger.info(f"API: load_model called with model_id={model_id}, context_length={context_length}")
         try:
+            logger.info(f"API: POST {self.base_url}/api/v1/models/load (timeout=120s)")
+
+            # Build request payload with proper config structure for context length
+            payload: dict[str, Any] = {"model": model_id}
+            if context_length is not None:
+                payload["config"] = {"context_length": context_length}
+                logger.info(f"API: Using context_length={context_length}")
+
+            # Load can take 30-120 seconds for large models
             response = await self._client.post(
-                "/v1/models/load",
-                json={"model_id": model_id},
+                "/api/v1/models/load",
+                json=payload,
+                timeout=120.0,
             )
+            logger.info(f"API: Response status={response.status_code}")
             response.raise_for_status()
+            logger.info(f"API: Model {model_id} loaded successfully")
             return True
         except httpx.HTTPError as e:
-            logger.error(f"Failed to load model {model_id}: {e}")
+            logger.error(f"API: Failed to load model {model_id}: {e}")
             raise
 
-    async def unload_model(self, model_id: str) -> bool:
+    async def unload_model(self, instance_id: str) -> bool:
         """Unload a model from memory.
 
-        POST /v1/models/unload
+        POST /api/v1/models/unload
 
         Args:
-            model_id: Identifier of the model to unload.
+            instance_id: Instance ID of the loaded model (from loaded_instances[].id).
 
         Returns:
             True if the model was unloaded successfully.
@@ -138,14 +176,16 @@ class LMStudioClient:
             httpx.HTTPError: If the request fails.
         """
         try:
+            logger.info(f"API: Unloading model with instance_id={instance_id}")
             response = await self._client.post(
-                "/v1/models/unload",
-                json={"model_id": model_id},
+                "/api/v1/models/unload",
+                json={"instance_id": instance_id},
             )
+            logger.info(f"API: Unload response status={response.status_code}, body={response.text}")
             response.raise_for_status()
             return True
         except httpx.HTTPError as e:
-            logger.error(f"Failed to unload model {model_id}: {e}")
+            logger.error(f"Failed to unload model with instance_id={instance_id}: {e}")
             raise
 
     async def get_loaded_models(self) -> list[ModelInfo]:

@@ -1,12 +1,25 @@
 """Main Textual application for LM Studio TUI."""
 
 import asyncio
+import logging
+import sys
 
 from textual.app import App
 from textual.worker import get_current_worker
 
 from lmstudio_tui.screens.main_screen import MainScreen
 from lmstudio_tui.store import RootStore, get_store
+
+# Configure logging - write to file only, suppress stderr to prevent TUI corruption
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/tmp/lmstudio-tui.log'),
+    ]
+)
+# Suppress stderr logging to prevent interference with TUI display
+logger = logging.getLogger(__name__)
 
 
 class LMStudioApp(App):
@@ -83,20 +96,27 @@ class LMStudioApp(App):
         API and updates the store. It also maintains the server_connected
         state based on fetch success/failure.
         """
+        logger.info("=== Models update worker started ===")
         while True:
             try:
                 worker = get_current_worker()
                 if worker.is_cancelled:
+                    logger.info("Models worker cancelled")
                     break
 
                 # Ensure API client is connected
                 if self.store.api_client is None and not self.store.connect_to_server():
-                    # Connection failed, wait and retry
+                    logger.warning("API client not connected, waiting...")
                     await asyncio.sleep(5.0)
                     continue
 
                 # Fetch models from API
+                logger.info("Fetching models from API...")
                 models = await self.store.api_client.get_models()
+                logger.info(f"Fetched {len(models)} models")
+                for i, m in enumerate(models):
+                    logger.info(f"  Model {i}: id={m.id}, name={m.name}, loaded={m.loaded}, size={m.size}")
+                
                 self.store.models.value = models
                 self.store.models_error.value = None
                 self.store.server_connected.value = True
@@ -106,9 +126,11 @@ class LMStudioApp(App):
                     for model in models:
                         if model.loaded:
                             self.store.active_model.value = model.id
+                            logger.info(f"Auto-set active model: {model.id}")
                             break
 
             except Exception as e:
+                logger.error(f"Models worker error: {e}", exc_info=True)
                 self.store.models_error.value = str(e)
                 self.store.server_connected.value = False
                 self.store.last_error.value = f"API Error: {e}"
@@ -165,19 +187,26 @@ class LMStudioApp(App):
 
     def action_load_model(self) -> None:
         """Load the currently selected model."""
-        # Find the models panel and trigger load action
+        logger.info("=== APP action_load_model called ===")
         from lmstudio_tui.widgets.models_panel import ModelsPanel
-        models_panel = self.query_one(ModelsPanel)
-        if models_panel:
-            models_panel.run_worker(models_panel.action_load_model())
+        try:
+            models_panel = self.screen.query_one(ModelsPanel)
+            logger.info(f"Found models_panel: {models_panel}")
+            self.run_worker(models_panel.action_load_model())
+            logger.info("Worker scheduled for load action")
+        except Exception as e:
+            logger.error(f"Error in action_load_model: {e}", exc_info=True)
+            self.notify(f"Error loading model: {e}", severity="error")
 
     def action_unload_model(self) -> None:
         """Unload the currently selected model."""
         # Find the models panel and trigger unload action
         from lmstudio_tui.widgets.models_panel import ModelsPanel
-        models_panel = self.query_one(ModelsPanel)
-        if models_panel:
-            models_panel.run_worker(models_panel.action_unload_model())
+        try:
+            models_panel = self.screen.query_one(ModelsPanel)
+            self.run_worker(models_panel.action_unload_model())
+        except Exception as e:
+            self.notify(f"Error unloading model: {e}", severity="error")
 
     async def on_shutdown(self) -> None:
         """App shutdown - cleanup resources."""

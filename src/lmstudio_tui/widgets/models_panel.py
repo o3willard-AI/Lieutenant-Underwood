@@ -141,7 +141,7 @@ class ModelsPanel(Container):
         
         # Create data table
         self._table = DataTable()
-        self._table.add_columns("Status", "Model Name", "Size", "Quant", "Context")
+        self._table.add_columns("Status", "Model Name")
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
@@ -239,16 +239,24 @@ class ModelsPanel(Container):
         # Add rows for each model
         for model in models:
             status = "● Loaded" if model.loaded else "○ Standby"
-            size_str = format_size(model.size)
-            quant = extract_quantization(model.id)
-            context = "-"  # Placeholder for now
+            size_str = format_size(model.size) if model.size > 0 else "-"
+            quant = model.quantization if model.quantization != "-" else extract_quantization(model.id)
+            # Show loaded context / max context
+            if model.loaded and model.loaded_context_length > 0:
+                context = f"{model.loaded_context_length:,}"
+            elif model.max_context_length > 0:
+                context = f"{model.max_context_length:,}"
+            else:
+                context = "-"
+            
+            # Truncate model name if too long - allow 4 more chars
+            display_name = model.name or model.id
+            if len(display_name) > 34:
+                display_name = display_name[:31] + "..."
             
             self._table.add_row(
                 status,
-                model.name or model.id,
-                size_str,
-                quant,
-                context
+                display_name
             )
             self._model_ids.append(model.id)
 
@@ -282,73 +290,120 @@ class ModelsPanel(Container):
 
     async def action_load_model(self) -> None:
         """Load the selected model."""
+        logger.info("=== action_load_model called ===")
         model_id = self._get_selected_model_id()
+        logger.info(f"Selected model_id: {model_id}")
+
         if not model_id:
             self.app.notify("No model selected", severity="warning")
+            logger.warning("No model selected")
             return
-        
+
         model = self._get_model_by_id(model_id)
+        logger.info(f"Found model: {model}")
+
         if model and model.loaded:
             self.app.notify(f"Model '{model.name or model_id}' is already loaded", severity="information")
+            logger.info(f"Model already loaded: {model_id}")
             return
-        
+
         self._loading = True
         self.app.notify(f"Loading model '{model_id}'...")
-        
+        logger.info(f"Starting load for model: {model_id}")
+
         try:
             client = self._store.api_client
+            logger.info(f"API client: {client}")
+
             if not client:
                 self.app.notify("Not connected to server", severity="error")
+                logger.error("No API client - not connected")
                 return
-            
-            await client.load_model(model_id)
+
+            # Use max context length from model info for optimal VRAM usage
+            context_length = model.max_context_length if model else None
+            if context_length and context_length > 0:
+                logger.info(f"Using max_context_length={context_length} for load")
+            else:
+                context_length = None
+                logger.info("No max_context_length available, letting API use default")
+
+            logger.info(f"Calling client.load_model({model_id}, context_length={context_length})")
+            result = await client.load_model(model_id, context_length=context_length)
+            logger.info(f"load_model result: {result}")
+
             self.app.notify(f"Model '{model_id}' loaded successfully", severity="information")
-            
+
             # Trigger a refresh
+            logger.info("Refreshing models after load")
             await self._refresh_models()
-            
+
         except Exception as e:
-            logger.error(f"Failed to load model {model_id}: {e}")
+            logger.error(f"Failed to load model {model_id}: {e}", exc_info=True)
             self.app.notify(f"Failed to load model: {e}", severity="error")
         finally:
             self._loading = False
+            logger.info("=== action_load_model complete ===")
 
     async def action_unload_model(self) -> None:
         """Unload the selected model."""
+        logger.info("=== action_unload_model called ===")
         model_id = self._get_selected_model_id()
+        logger.info(f"Selected model_id for unload: {model_id}")
+        
         if not model_id:
             self.app.notify("No model selected", severity="warning")
+            logger.warning("No model selected for unload")
             return
         
         model = self._get_model_by_id(model_id)
+        logger.info(f"Found model for unload: {model}, loaded={model.loaded if model else 'N/A'}")
+        
         if model and not model.loaded:
             self.app.notify(f"Model '{model.name or model_id}' is not loaded", severity="information")
+            logger.info(f"Model not loaded, skipping unload: {model_id}")
+            return
+        
+        if not model or not model.instance_id:
+            self.app.notify("No instance ID available for unload", severity="error")
+            logger.error(f"No instance_id for model: {model_id}")
             return
         
         self._loading = True
         self.app.notify(f"Unloading model '{model_id}'...")
+        logger.info(f"Starting unload for model: {model_id} with instance_id: {model.instance_id}")
         
         try:
             client = self._store.api_client
+            logger.info(f"API client for unload: {client}")
+            
             if not client:
                 self.app.notify("Not connected to server", severity="error")
+                logger.error("No API client - not connected for unload")
                 return
             
-            await client.unload_model(model_id)
+            logger.info(f"Calling client.unload_model(instance_id={model.instance_id})")
+            result = await client.unload_model(model.instance_id)
+            logger.info(f"unload_model result: {result}")
+            
             self.app.notify(f"Model '{model_id}' unloaded successfully", severity="information")
+            logger.info(f"Unload success for {model_id}")
             
             # Clear active model if it was this one
             if self._store.active_model.value == model_id:
                 self._store.active_model.value = None
+                logger.info(f"Cleared active model: {model_id}")
             
             # Trigger a refresh
+            logger.info("Refreshing models after unload")
             await self._refresh_models()
             
         except Exception as e:
-            logger.error(f"Failed to unload model {model_id}: {e}")
+            logger.error(f"Failed to unload model {model_id}: {e}", exc_info=True)
             self.app.notify(f"Failed to unload model: {e}", severity="error")
         finally:
             self._loading = False
+            logger.info("=== action_unload_model complete ===")
 
     def action_show_details(self) -> None:
         """Show details for the selected model."""

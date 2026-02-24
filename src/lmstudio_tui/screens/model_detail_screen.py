@@ -110,6 +110,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self._store = get_store()
         self._model: Optional[ModelInfo] = None
         self._error: Optional[str] = None
+        self._ignore_enter = True  # Ignore first Enter key to prevent auto-fire
 
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
@@ -131,16 +132,22 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                         yield Static("ID:", classes="label")
                         yield Static(self._model.id, classes="value")
                 
-                # Size
-                with Horizontal(classes="info-row"):
-                    yield Static("Size:", classes="label")
-                    yield Static(format_size(self._model.size), classes="value")
-                
                 # Quantization
-                quant = extract_quantization(self._model.id)
+                quant = self._model.quantization if self._model.quantization != "-" else extract_quantization(self._model.id)
                 with Horizontal(classes="info-row"):
                     yield Static("Quant:", classes="label")
                     yield Static(quant, classes="value")
+                
+                # Context Length
+                if self._model.loaded and self._model.loaded_context_length > 0:
+                    context_text = f"{self._model.loaded_context_length:,} / {self._model.max_context_length:,}"
+                elif self._model.max_context_length > 0:
+                    context_text = f"{self._model.max_context_length:,}"
+                else:
+                    context_text = "-"
+                with Horizontal(classes="info-row"):
+                    yield Static("Context:", classes="label")
+                    yield Static(context_text, classes="value")
                 
                 # Status
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
@@ -149,21 +156,26 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     yield Static("Status:", classes="label")
                     yield Static(status_text, classes=f"value {status_class}")
                 
-                # Buttons
+                # Buttons - Cancel first to prevent accidental action
                 with Horizontal(classes="buttons"):
+                    yield Button("Cancel", id="cancel-btn")
                     if self._model.loaded:
                         yield Button(
-                            "Unload Model",
+                            "Eject",
                             id="unload-btn",
                             variant="error"
                         )
+                        yield Button(
+                            "Change Context",
+                            id="context-btn",
+                            variant="primary"
+                        )
                     else:
                         yield Button(
-                            "Load Model",
+                            "Load",
                             id="load-btn",
                             variant="success"
                         )
-                    yield Button("Cancel", id="cancel-btn")
             else:
                 yield Static(f"Model '{self.model_id}' not found", classes="error")
                 with Horizontal(classes="buttons"):
@@ -196,8 +208,15 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             await self._load_model()
         elif button_id == "unload-btn":
             await self._unload_model()
+        elif button_id == "context-btn":
+            await self._change_context()
         elif button_id == "cancel-btn":
             self.dismiss(None)
+
+    async def _change_context(self) -> None:
+        """Change the model's context window size."""
+        # Placeholder - would open a dialog to adjust context
+        self.app.notify("Context change not yet implemented - use LM Studio desktop UI", severity="warning")
 
     async def _load_model(self) -> None:
         """Load the model."""
@@ -240,6 +259,11 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             self._update_error_display()
             return
         
+        if not self._model.instance_id:
+            self._error = "No instance ID available"
+            self._update_error_display()
+            return
+        
         try:
             client = self._store.api_client
             if not client:
@@ -247,7 +271,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 self._update_error_display()
                 return
             
-            await client.unload_model(self.model_id)
+            await client.unload_model(self._model.instance_id)
             
             # Clear active model if it was this one
             if self._store.active_model.value == self.model_id:
@@ -281,3 +305,24 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     def key_escape(self) -> None:
         """Handle Escape key - close modal."""
         self.dismiss(None)
+
+    def on_mount(self) -> None:
+        """Set a flag to ignore the first enter key press."""
+        self._ignore_enter = True
+
+    def key_enter(self) -> None:
+        """Handle Enter key - ignore first press to prevent auto-fire."""
+        if self._ignore_enter:
+            self._ignore_enter = False
+            return
+        # Let focused button handle Enter
+
+    def key_tab(self) -> None:
+        """Handle Tab key - move focus to next button."""
+        self.screen.focus_next()
+        self._ignore_enter = False  # User has interacted, stop ignoring
+
+    def key_shift_tab(self) -> None:
+        """Handle Shift+Tab - move focus to previous button."""
+        self.screen.focus_previous()
+        self._ignore_enter = False  # User has interacted, stop ignoring
