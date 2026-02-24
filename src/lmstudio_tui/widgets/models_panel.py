@@ -105,11 +105,6 @@ class ModelsPanel(Container):
     ModelsPanel DataTable > .datatable--row-cursor {
         background: $primary-darken-2;
     }
-    ModelsPanel Static.help-text {
-        color: $text-muted;
-        height: 1;
-        content-align: left middle;
-    }
     ModelsPanel Static.error {
         color: $error;
         text-style: bold;
@@ -145,8 +140,6 @@ class ModelsPanel(Container):
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
-        
-        yield Static("[Enter] Details │ [l] Load │ [u] Unload │ [r] Refresh", classes="help-text")
 
     def on_mount(self) -> None:
         """Mount panel and set up store watchers."""

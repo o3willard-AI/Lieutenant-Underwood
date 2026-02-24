@@ -10,15 +10,20 @@ from textual.worker import get_current_worker
 from lmstudio_tui.screens.main_screen import MainScreen
 from lmstudio_tui.store import RootStore, get_store
 
-# Configure logging - write to file only, suppress stderr to prevent TUI corruption
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/tmp/lmstudio-tui.log'),
-    ]
-)
-# Suppress stderr logging to prevent interference with TUI display
+# Configure logging - write to file only, suppress stdout/stderr to prevent TUI corruption
+# Remove all existing handlers first to prevent duplicate or stderr output
+root_logger = logging.getLogger()
+root_logger.handlers = []  # Clear any existing handlers
+root_logger.setLevel(logging.INFO)
+
+# Create file handler only
+file_handler = logging.FileHandler('/tmp/lmstudio-tui.log')
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+root_logger.addHandler(file_handler)
+
+# Ensure no propagation to default handlers
+logging.getLogger().propagate = False
+
 logger = logging.getLogger(__name__)
 
 

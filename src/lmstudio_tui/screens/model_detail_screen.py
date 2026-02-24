@@ -76,6 +76,12 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         content-align: center middle;
         margin-top: 1;
     }
+    ModelDetailScreen Static.loading {
+        color: $primary;
+        text-style: bold;
+        content-align: center middle;
+        margin-top: 1;
+    }
     ModelDetailScreen Horizontal.info-row {
         height: 1;
         margin-bottom: 1;
@@ -111,6 +117,9 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self._model: Optional[ModelInfo] = None
         self._error: Optional[str] = None
         self._ignore_enter = True  # Ignore first Enter key to prevent auto-fire
+        self._loading = False  # Loading state for load/unload operations
+        self._loading_dots = 0  # Counter for animated dots
+        self._loading_task = None  # Timer task for animation
 
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
@@ -219,7 +228,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self.app.notify("Context change not yet implemented - use LM Studio desktop UI", severity="warning")
 
     async def _load_model(self) -> None:
-        """Load the model."""
+        """Load the model with animated loading state."""
         if not self._model:
             return
         
@@ -228,11 +237,23 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             self._update_error_display()
             return
         
+        if self._loading:
+            return  # Prevent duplicate requests
+        
+        self._loading = True
+        self._loading_dots = 0
+        self._update_loading_display()
+        self._disable_buttons()
+        
+        # Start animated dots timer
+        self._loading_task = self.set_interval(0.5, self._animate_loading_dots)
+        
         try:
             client = self._store.api_client
             if not client:
                 self._error = "Not connected to server"
                 self._update_error_display()
+                self._stop_loading()
                 return
             
             await client.load_model(self.model_id)
@@ -241,6 +262,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             models = await client.get_models()
             self._store.models.value = models
             
+            self._stop_loading()
             self.dismiss("loaded")
             self.app.notify(f"Model '{self.model_id}' loaded successfully")
             
@@ -248,9 +270,10 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             logger.error(f"Failed to load model {self.model_id}: {e}")
             self._error = f"Failed to load: {e}"
             self._update_error_display()
+            self._stop_loading()
 
     async def _unload_model(self) -> None:
-        """Unload the model."""
+        """Unload the model with animated loading state."""
         if not self._model:
             return
         
@@ -264,11 +287,23 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             self._update_error_display()
             return
         
+        if self._loading:
+            return  # Prevent duplicate requests
+        
+        self._loading = True
+        self._loading_dots = 0
+        self._update_loading_display()
+        self._disable_buttons()
+        
+        # Start animated dots timer
+        self._loading_task = self.set_interval(0.5, self._animate_loading_dots)
+        
         try:
             client = self._store.api_client
             if not client:
                 self._error = "Not connected to server"
                 self._update_error_display()
+                self._stop_loading()
                 return
             
             await client.unload_model(self._model.instance_id)
@@ -281,6 +316,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             models = await client.get_models()
             self._store.models.value = models
             
+            self._stop_loading()
             self.dismiss("unloaded")
             self.app.notify(f"Model '{self.model_id}' unloaded successfully")
             
@@ -288,6 +324,50 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             logger.error(f"Failed to unload model {self.model_id}: {e}")
             self._error = f"Failed to unload: {e}"
             self._update_error_display()
+            self._stop_loading()
+
+    def _animate_loading_dots(self) -> None:
+        """Animate the loading dots (runs every 0.5 seconds)."""
+        self._loading_dots = (self._loading_dots + 1) % 4  # 0, 1, 2, 3, 0...
+        self._update_loading_display()
+
+    def _update_loading_display(self) -> None:
+        """Update the loading text with animated dots."""
+        # Remove existing loading indicator
+        for child in self.query("Static.loading"):
+            child.remove()
+        
+        if self._loading:
+            # Add animated loading text
+            dots = "." * self._loading_dots
+            container = self.query_one(Container)
+            loading_text = f"⏳ Loading{dots}"
+            loading_static = Static(loading_text, classes="loading")
+            # Insert before buttons
+            buttons = self.query_one("Horizontal.buttons")
+            buttons.mount(loading_static, before=0)
+
+    def _disable_buttons(self) -> None:
+        """Disable all buttons during loading."""
+        for button in self.query(Button):
+            button.disabled = True
+
+    def _stop_loading(self) -> None:
+        """Stop the loading animation and re-enable buttons."""
+        self._loading = False
+        
+        # Stop the animation timer
+        if self._loading_task:
+            self._loading_task.stop()
+            self._loading_task = None
+        
+        # Remove loading indicator
+        for child in self.query("Static.loading"):
+            child.remove()
+        
+        # Re-enable buttons
+        for button in self.query(Button):
+            button.disabled = False
 
     def _update_error_display(self) -> None:
         """Update the error display."""
