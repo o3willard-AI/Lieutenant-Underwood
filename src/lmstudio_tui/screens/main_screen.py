@@ -2,7 +2,9 @@
 
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
+
+from lmstudio_tui import __version__
 
 from lmstudio_tui.widgets.ascii_logo import AsciiLogo
 from lmstudio_tui.widgets.gpu_panel import GPUPanel
@@ -32,6 +34,12 @@ class MainScreen(Screen):
         width: 60%;
         height: 100%;
     }
+    #version-footer {
+        height: 1;
+        width: 100%;
+        content-align: right middle;
+        color: $text-muted;
+    }
     """
 
     def compose(self):
@@ -46,3 +54,4 @@ class MainScreen(Screen):
             id="main-content"
         )
         yield Footer()
+        yield Static(f"v{__version__} | LT-UAT-2024-02-24", id="version-footer")
