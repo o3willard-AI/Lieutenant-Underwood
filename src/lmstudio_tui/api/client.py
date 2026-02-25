@@ -141,11 +141,11 @@ class LMStudioClient:
         try:
             logger.info(f"API: POST {self.base_url}/api/v1/models/load (timeout=120s)")
 
-            # Build request payload with proper config structure for context length
+            # Build request payload per LM Studio API docs
+            # https://lmstudio.ai/docs/developer/rest/load
             payload: dict[str, Any] = {"model": model_id}
             if context_length is not None:
-                payload["config"] = {"context_length": context_length}
-                logger.info(f"API: Using context_length={context_length}")
+                payload["config"] = {"contextLength": context_length}
 
             # Load can take 30-120 seconds for large models
             response = await self._client.post(
@@ -157,6 +157,10 @@ class LMStudioClient:
             response.raise_for_status()
             logger.info(f"API: Model {model_id} loaded successfully")
             return True
+        except httpx.HTTPStatusError as e:
+            logger.error(f"API: Failed to load model {model_id}: {e}")
+            logger.error(f"API: Response body: {e.response.text}")
+            raise
         except httpx.HTTPError as e:
             logger.error(f"API: Failed to load model {model_id}: {e}")
             raise
