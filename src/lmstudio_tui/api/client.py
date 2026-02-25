@@ -143,9 +143,15 @@ class LMStudioClient:
 
             # Build request payload per LM Studio API docs
             # https://lmstudio.ai/docs/developer/rest/load
-            payload: dict[str, Any] = {"model": model_id}
+            # GPU optimization: offload_kv_cache_to_gpu=true maximizes GPU utilization
+            # (REST API equivalent of CLI --gpu max behavior)
+            payload: dict[str, Any] = {
+                "model": model_id,
+                "offload_kv_cache_to_gpu": True,
+                "flash_attention": True,
+            }
             if context_length is not None:
-                payload["config"] = {"contextLength": context_length}
+                payload["context_length"] = context_length
 
             # Load can take 30-120 seconds for large models
             response = await self._client.post(
