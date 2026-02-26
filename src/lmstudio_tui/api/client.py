@@ -143,15 +143,13 @@ class LMStudioClient:
 
             # Build request payload per LM Studio API docs
             # https://lmstudio.ai/docs/developer/rest/load
-            # Model weights offload to GPU automatically; KV cache stays in RAM
-            # to avoid OOM when context_length is large (scales with context)
+            # Model weights offload to GPU automatically
+            # Set context_length to prevent massive KV cache allocation (scales with context)
             payload: dict[str, Any] = {
                 "model": model_id,
-                "offload_kv_cache_to_gpu": False,  # Keep KV cache in system RAM
+                "context_length": context_length if context_length is not None else 8192,
                 "flash_attention": True,
             }
-            if context_length is not None:
-                payload["context_length"] = context_length
 
             # Load can take 30-120 seconds for large models
             response = await self._client.post(
