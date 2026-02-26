@@ -313,13 +313,11 @@ class ModelsPanel(Container):
                 logger.error("No API client - not connected")
                 return
 
-            # Use max context length from model info for optimal VRAM usage
-            context_length = model.max_context_length if model else None
-            if context_length and context_length > 0:
-                logger.info(f"Using max_context_length={context_length} for load")
-            else:
-                context_length = None
-                logger.info("No max_context_length available, letting API use default")
+            # Use conservative context length to prevent OOM
+            # Model max is often 262k which requires ~25GB KV cache
+            # 8k context is sufficient for most tasks and only needs ~0.8GB
+            context_length = 8192
+            logger.info(f"Using conservative context_length={context_length} for load")
 
             logger.info(f"Calling client.load_model({model_id}, context_length={context_length})")
             result = await client.load_model(model_id, context_length=context_length)
