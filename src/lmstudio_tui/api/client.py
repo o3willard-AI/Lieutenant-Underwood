@@ -143,11 +143,11 @@ class LMStudioClient:
 
             # Build request payload per LM Studio API docs
             # https://lmstudio.ai/docs/developer/rest/load
-            # GPU optimization: offload_kv_cache_to_gpu=true maximizes GPU utilization
-            # (REST API equivalent of CLI --gpu max behavior)
+            # Model weights offload to GPU automatically; KV cache stays in RAM
+            # to avoid OOM when context_length is large (scales with context)
             payload: dict[str, Any] = {
                 "model": model_id,
-                "offload_kv_cache_to_gpu": True,
+                "offload_kv_cache_to_gpu": False,  # Keep KV cache in system RAM
                 "flash_attention": True,
             }
             if context_length is not None:
