@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import logging.handlers
 import sys
+from pathlib import Path
 
 from textual.app import App
 from textual.worker import get_current_worker
@@ -10,21 +12,39 @@ from textual.worker import get_current_worker
 from lmstudio_tui.screens.main_screen import MainScreen
 from lmstudio_tui.store import RootStore, get_store
 
-# Configure logging - write to file only, suppress stdout/stderr to prevent TUI corruption
-# Remove all existing handlers first to prevent duplicate or stderr output
-root_logger = logging.getLogger()
-root_logger.handlers = []  # Clear any existing handlers
-root_logger.setLevel(logging.INFO)
+def _setup_logging() -> logging.Logger:
+    """Configure secure file-based logging with rotation.
+    
+    Uses ~/.local/share/lmstudio-tui/ for log storage with
+    RotatingFileHandler for automatic log rotation.
+    """
+    # Create secure log directory
+    log_dir = Path.home() / ".local" / "share" / "lmstudio-tui"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.handlers = []  # Clear existing handlers
+    root_logger.setLevel(logging.INFO)
+    
+    # Create rotating file handler (5MB max, 3 backups)
+    log_file = log_dir / "app.log"
+    handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=5*1024*1024,  # 5MB
+        backupCount=3
+    )
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    ))
+    root_logger.addHandler(handler)
+    
+    # Prevent propagation to avoid duplicate logs
+    logging.getLogger().propagate = False
+    
+    return logging.getLogger(__name__)
 
-# Create file handler only
-file_handler = logging.FileHandler('/tmp/lmstudio-tui.log')
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-root_logger.addHandler(file_handler)
-
-# Ensure no propagation to default handlers
-logging.getLogger().propagate = False
-
-logger = logging.getLogger(__name__)
+logger = _setup_logging()
 
 
 class LMStudioApp(App):
