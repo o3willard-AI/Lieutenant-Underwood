@@ -68,4 +68,4 @@ class MainScreen(Screen):
             id="main-content"
         )
         yield Footer()
-        yield Static(f"v{__version__} | LT-UAT-2024-02-24", id="version-footer")
+        yield Static(f"v{__version__} | 2026-02-26", id="version-footer")
