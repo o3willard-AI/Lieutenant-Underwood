@@ -79,11 +79,12 @@ class LMStudioApp(App):
                 if worker.is_cancelled:
                     break
 
-                if self.store.gpu_monitor is None:
+                monitor = self.store.gpu_monitor
+                if monitor is None:
                     # GPU monitoring stopped, exit worker
                     break
 
-                metrics = self.store.gpu_monitor.get_metrics()
+                metrics = monitor.get_metrics()
                 self.store.gpu_metrics.value = metrics
                 self.store.gpu_error.value = None
 
