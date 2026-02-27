@@ -65,6 +65,9 @@ class LMStudioApp(App):
         super().__init__(*args, **kwargs)
         self.store: RootStore = get_store()
         self._shutdown_event = asyncio.Event()
+        # Exponential backoff state for models worker
+        self._models_backoff_delay = 5.0
+        self._models_max_backoff = 60.0
         # Load config from default location
         self.store.load_config()
 
@@ -155,12 +158,23 @@ class LMStudioApp(App):
                 self.store.models_error.value = str(e)
                 self.store.server_connected.value = False
                 self.store.last_error.value = f"API Error: {e}"
+                # Exponential backoff on error
+                self._models_backoff_delay = min(
+                    self._models_backoff_delay * 2,
+                    self._models_max_backoff
+                )
+                logger.info(f"Backing off for {self._models_backoff_delay}s before retry")
+            else:
+                # Reset backoff on success
+                if self._models_backoff_delay != 5.0:
+                    self._models_backoff_delay = 5.0
+                    logger.info("Reset backoff to 5s after successful fetch")
 
-            # Wait for shutdown signal or timeout
+            # Wait for shutdown signal or timeout (uses backoff delay)
             try:
                 await asyncio.wait_for(
                     self._shutdown_event.wait(),
-                    timeout=5.0
+                    timeout=self._models_backoff_delay
                 )
             except asyncio.TimeoutError:
                 pass
