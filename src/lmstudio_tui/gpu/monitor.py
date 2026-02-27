@@ -43,7 +43,7 @@ class GPUMonitor:
                 return False
             self._initialized = True
             return True
-        except (pynvml.NVMLError, Exception):
+        except (pynvml.NVMLError, OSError):
             # NVML initialization failed (no NVIDIA driver, etc.)
             return False
 
