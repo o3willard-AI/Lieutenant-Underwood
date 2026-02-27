@@ -1,5 +1,7 @@
 """GPU panel widgets for LM Studio TUI."""
 
+from __future__ import annotations
+
 from rich.text import Text
 from textual.containers import Container
 from textual.reactive import reactive
@@ -200,20 +202,29 @@ class GPUCard(Container):
         """
         super().__init__(**kwargs)
         self._metrics = metrics
+        # Widget references (populated in compose)
+        self._name_widget: Static | None = None
+        self._util_widget: Static | None = None
+        self._vram_text_widget: Static | None = None
+        self._power_widget: Static | None = None
+        self._vram_bar: VRAMBar | None = None
+        self._temp_display: TempDisplay | None = None
 
     def compose(self):
         """Compose the GPU card widgets."""
         # GPU Name
-        yield Static(
+        self._name_widget = Static(
             self._metrics.name,
             classes="name"
         )
+        yield self._name_widget
         
         # Utilization percentage
-        yield Static(
+        self._util_widget = Static(
             f"{self._metrics.utilization}%",
             classes="utilization"
         )
+        yield self._util_widget
         
         # VRAM bar
         self._vram_bar = VRAMBar(
@@ -225,10 +236,11 @@ class GPUCard(Container):
         # VRAM text (e.g., "4.0/8.0 GB")
         vram_used_gb = self._metrics.vram_used / 1024
         vram_total_gb = self._metrics.vram_total / 1024
-        yield Static(
+        self._vram_text_widget = Static(
             f"{vram_used_gb:.1f}/{vram_total_gb:.1f} GB",
             classes="vram-text"
         )
+        yield self._vram_text_widget
         
         # Temperature display
         self._temp_display = TempDisplay(
@@ -237,10 +249,11 @@ class GPUCard(Container):
         yield self._temp_display
         
         # Power draw
-        yield Static(
+        self._power_widget = Static(
             f"{self._metrics.power_draw:.1f}W",
             classes="power"
         )
+        yield self._power_widget
 
     def update_metrics(self, metrics: GPUMetrics) -> None:
         """Update card with new metrics.
@@ -250,24 +263,25 @@ class GPUCard(Container):
         """
         self._metrics = metrics
         
-        # Update all child widgets
-        widgets = list(self.query(Static))
-        if len(widgets) >= 1:
-            widgets[0].update(self._metrics.name)  # name
-        if len(widgets) >= 2:
-            widgets[1].update(f"{self._metrics.utilization}%")  # utilization
-        if len(widgets) >= 4:
+        # Update using stored widget references (safe, not brittle)
+        if self._name_widget:
+            self._name_widget.update(self._metrics.name)
+        if self._util_widget:
+            self._util_widget.update(f"{self._metrics.utilization}%")
+        if self._vram_text_widget:
             vram_used_gb = self._metrics.vram_used / 1024
             vram_total_gb = self._metrics.vram_total / 1024
-            widgets[3].update(f"{vram_used_gb:.1f}/{vram_total_gb:.1f} GB")  # vram text
-        if len(widgets) >= 6:
-            widgets[5].update(f"{self._metrics.power_draw:.1f}W")  # power
+            self._vram_text_widget.update(f"{vram_used_gb:.1f}/{vram_total_gb:.1f} GB")
+        if self._power_widget:
+            self._power_widget.update(f"{self._metrics.power_draw:.1f}W")
         
         # Update VRAM bar
-        self._vram_bar._update_vram(self._metrics.vram_used)
+        if self._vram_bar:
+            self._vram_bar._update_vram(self._metrics.vram_used)
         
         # Update temperature
-        self._temp_display.update_temperature(self._metrics.temperature)
+        if self._temp_display:
+            self._temp_display.update_temperature(self._metrics.temperature)
 
 
 class GPUPanel(Container):
