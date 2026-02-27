@@ -2,34 +2,58 @@
 
 Displays a table of available models with their load status,
 size, quantization, and context length. Supports loading and
-unloading models via keybindings.
+unloading models via keybindings. Includes configuration frame
+for per-model load options.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
 from rich.text import Text
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Static, Input, Select
 
 from lmstudio_tui.api.client import LMStudioClient, ModelInfo
-from lmstudio_tui.store import get_store
+from lmstudio_tui.store import get_store, ModelLoadConfig
 
 logger = logging.getLogger(__name__)
 
+# Context length options
+CONTEXT_OPTIONS = [
+    ("8K", 8192),
+    ("16K", 16384),
+    ("32K", 32768),
+    ("65K", 65536),
+    ("131K", 131072),
+    ("262K", 262144),
+    ("Max VRAM", -1),  # Special: calculate based on VRAM
+    ("Max Supported", -2),  # Special: use model's max
+]
+
+# GPU offload options
+OFFLOAD_OPTIONS = [
+    ("Max", -1),
+    ("100%", 100),
+    ("75%", 75),
+    ("50%", 50),
+    ("25%", 25),
+    ("0%", 0),
+]
+
+# KV cache quantization options
+KV_QUANT_OPTIONS = [
+    ("F16 (best quality)", "f16"),
+    ("Q8_0 (good quality)", "q8_0"),
+    ("Q4_0 (smaller)", "q4_0"),
+]
+
 
 def format_size(size_bytes: int) -> str:
-    """Format size in bytes to human-readable string.
-    
-    Args:
-        size_bytes: Size in bytes.
-        
-    Returns:
-        Human-readable string (e.g., "42.5 GB", "512 MB").
-    """
+    """Format size in bytes to human-readable string."""
     if size_bytes >= 1024 ** 3:
         return f"{size_bytes / (1024 ** 3):.1f} GB"
     elif size_bytes >= 1024 ** 2:
@@ -41,39 +65,30 @@ def format_size(size_bytes: int) -> str:
 
 
 def extract_quantization(model_name: str) -> str:
-    """Extract quantization from model name.
-    
-    Args:
-        model_name: Model name string.
-        
-    Returns:
-        Quantization string (e.g., "Q4_K_M") or "-".
-    """
-    # Common quantization patterns
+    """Extract quantization from model name."""
     import re
     patterns = [
-        r'-(Q\d+_[KMS]_[ML]?)',  # Q4_K_M, Q5_K_S, Q6_K etc.
-        r'-(Q\d+_[KMS])',        # Q4_K, Q5_K, Q4_S etc.
-        r'-(Q\d+[A-Z]?)',        # Q4, Q5, Q8_0 etc.
+        r'-(Q\d+_[KMS]_[ML]?)',
+        r'-(Q\d+_[KMS])',
+        r'-(Q\d+[A-Z]?)',
         r'-(FP16)',
         r'-(FP32)',
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, model_name, re.IGNORECASE)
         if match:
             return match.group(1).upper()
-    
     return "-"
 
 
 class ModelsPanel(Container):
-    """Panel displaying available models with load/unload controls.
+    """Panel displaying available models with load/unload controls and config.
     
     Features:
     - DataTable showing Status, Name, Size, Quantization, Context
-    - Reactive binding to store.models
-    - Keybindings: l (load), u (unload), Enter (details), r (refresh)
+    - Configuration frame for GPU offload, context length, KV cache quant
+    - Loading animation with dots
+    - Reactive binding to store.models and store.model_loading
     """
 
     DEFAULT_CSS = """
@@ -116,23 +131,62 @@ class ModelsPanel(Container):
         content-align: center middle;
         height: 3;
     }
+    ModelsPanel Static.loading {
+        color: $warning;
+        text-style: bold;
+        content-align: center middle;
+        height: 1;
+    }
+    ModelsPanel Static.config-title {
+        text-style: bold;
+        color: $secondary;
+        height: 1;
+        margin-top: 1;
+    }
+    ModelsPanel Static.config-label {
+        color: $text-muted;
+        width: 20;
+    }
+    ModelsPanel Static.config-value {
+        color: $text;
+        width: auto;
+    }
+    ModelsPanel Static.config-note {
+        color: $text-muted;
+        text-style: italic;
+        height: 1;
+        margin-top: 1;
+    }
     """
 
     # Reactive state tracking
     _models: reactive[list[ModelInfo]] = reactive(list)
     _error: reactive[Optional[str]] = reactive(None)
-    _loading: reactive[bool] = reactive(False)
+    _loading: reactive[Optional[str]] = reactive(None)  # model_id being loaded
+    _loading_dots: reactive[int] = reactive(0)
+    _selected_model_id: reactive[Optional[str]] = reactive(None)
 
     def __init__(self, **kwargs):
         """Initialize models panel with store binding."""
         super().__init__(**kwargs)
         self._store = get_store()
         self._table: Optional[DataTable] = None
-        self._model_ids: list[str] = []  # Track model IDs for row mapping
+        self._model_ids: list[str] = []
+        self._config_container: Optional[Container] = None
+        self._loading_static: Optional[Static] = None
+        self._offload_select: Optional[Select] = None
+        self._context_select: Optional[Select] = None
+        self._kv_quant_select: Optional[Select] = None
+        self._animation_task: Optional[asyncio.Task] = None
 
     def compose(self):
         """Compose the models panel widgets."""
         yield Static("🤖 MODELS", classes="title")
+        
+        # Loading indicator
+        self._loading_static = Static("", classes="loading")
+        self._loading_static.display = False
+        yield self._loading_static
         
         # Create data table
         self._table = DataTable()
@@ -140,6 +194,42 @@ class ModelsPanel(Container):
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
+        
+        # Configuration frame for selected model
+        yield Static("⚙️  LOAD CONFIGURATION", classes="config-title")
+        self._config_container = Container()
+        with self._config_container:
+            # GPU Offload
+            with Horizontal():
+                yield Static("GPU Offload:", classes="config-label")
+                self._offload_select = Select(
+                    OFFLOAD_OPTIONS,
+                    value=-1,
+                    id="offload_select"
+                )
+                yield self._offload_select
+            
+            # Context Length
+            with Horizontal():
+                yield Static("Context:", classes="config-label")
+                self._context_select = Select(
+                    CONTEXT_OPTIONS,
+                    value=8192,
+                    id="context_select"
+                )
+                yield self._context_select
+            
+            # KV Cache Quantization
+            with Horizontal():
+                yield Static("KV Cache:", classes="config-label")
+                self._kv_quant_select = Select(
+                    KV_QUANT_OPTIONS,
+                    value="f16",
+                    id="kv_quant_select"
+                )
+                yield self._kv_quant_select
+        
+        yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
 
     def on_mount(self) -> None:
         """Mount panel and set up store watchers."""
@@ -151,6 +241,13 @@ class ModelsPanel(Container):
         self._unwatch_error = self._store.models_error.watch(
             self._on_error_change
         )
+        # Watch for loading state
+        self._unwatch_loading = self._store.model_loading.watch(
+            self._on_loading_change
+        )
+        self._unwatch_dots = self._store.model_loading_dots.watch(
+            self._on_dots_change
+        )
         
         # Initial render if data already available
         initial_models = self._store.models.value
@@ -160,6 +257,10 @@ class ModelsPanel(Container):
         initial_error = self._store.models_error.value
         if initial_error:
             self._error = initial_error
+        
+        initial_loading = self._store.model_loading.value
+        if initial_loading:
+            self._loading = initial_loading
         
         # Focus the table for keyboard navigation
         if self._table:
@@ -171,24 +272,62 @@ class ModelsPanel(Container):
             self._unwatch_models()
         if hasattr(self, '_unwatch_error'):
             self._unwatch_error()
+        if hasattr(self, '_unwatch_loading'):
+            self._unwatch_loading()
+        if hasattr(self, '_unwatch_dots'):
+            self._unwatch_dots()
+        if self._animation_task:
+            self._animation_task.cancel()
 
     def _on_models_change(self, old: list[ModelInfo], new: list[ModelInfo]) -> None:
-        """Handle models change from store.
-        
-        Args:
-            old: Previous models list.
-            new: New models list.
-        """
+        """Handle models change from store."""
         self._models = new
 
     def _on_error_change(self, old: Optional[str], new: Optional[str]) -> None:
-        """Handle error change from store.
-        
-        Args:
-            old: Previous error (if any).
-            new: New error (if any).
-        """
+        """Handle error change from store."""
         self._error = new
+
+    def _on_loading_change(self, old: Optional[str], new: Optional[str]) -> None:
+        """Handle loading state change."""
+        self._loading = new
+        if new:
+            # Start loading animation
+            self._start_loading_animation()
+        else:
+            # Stop loading animation
+            self._stop_loading_animation()
+
+    def _on_dots_change(self, old: int, new: int) -> None:
+        """Handle dots animation change."""
+        if self._loading_static and self._loading:
+            dots = "." * (new % 4)
+            self._loading_static.update(f"⏳ Loading {self._loading}{dots}")
+
+    def _start_loading_animation(self) -> None:
+        """Start the loading animation task."""
+        if self._loading_static:
+            self._loading_static.display = True
+        
+        async def animate():
+            try:
+                while self._loading:
+                    await asyncio.sleep(0.5)
+                    current = self._store.model_loading_dots.value
+                    self._store.model_loading_dots.value = (current + 1) % 4
+            except asyncio.CancelledError:
+                pass
+        
+        if self._animation_task:
+            self._animation_task.cancel()
+        self._animation_task = asyncio.create_task(animate())
+
+    def _stop_loading_animation(self) -> None:
+        """Stop the loading animation."""
+        if self._loading_static:
+            self._loading_static.display = False
+        if self._animation_task:
+            self._animation_task.cancel()
+            self._animation_task = None
 
     def watch__models(self, models: list[ModelInfo]) -> None:
         """React to models change - rebuild table rows."""
@@ -198,7 +337,6 @@ class ModelsPanel(Container):
         """React to error change - show error message."""
         if error and self._table:
             self._table.display = False
-            # Remove any existing error static
             for child in self.query(".error"):
                 child.remove()
             self.mount(Static(f"Error: {error}", classes="error"))
@@ -207,58 +345,68 @@ class ModelsPanel(Container):
             for child in self.query(".error"):
                 child.remove()
 
-    def watch__loading(self, loading: bool) -> None:
-        """Update UI based on loading state."""
-        if loading:
-            # Could add a loading indicator here
+    def watch__selected_model_id(self, model_id: Optional[str]) -> None:
+        """Update config UI when selection changes."""
+        self._update_config_ui(model_id)
+
+    def _update_config_ui(self, model_id: Optional[str]) -> None:
+        """Update configuration UI for selected model."""
+        if not model_id or not self._offload_select or not self._context_select or not self._kv_quant_select:
+            return
+        
+        config = self._store.get_model_config(model_id)
+        
+        # Update offload select
+        offload_value = config.gpu_offload_percent if config.gpu_offload_percent >= 0 else -1
+        try:
+            self._offload_select.value = offload_value
+        except Exception:
+            pass
+        
+        # Update context select
+        context_value = config.context_length if config.context_length > 0 else 8192
+        try:
+            self._context_select.value = context_value
+        except Exception:
+            pass
+        
+        # Update KV quant select
+        try:
+            self._kv_quant_select.value = config.kv_cache_quantization
+        except Exception:
             pass
 
     def _rebuild_table(self, models: list[ModelInfo]) -> None:
-        """Rebuild table rows based on models.
-        
-        Args:
-            models: List of ModelInfo to display.
-        """
+        """Rebuild table rows based on models."""
         if not self._table:
             return
         
-        # Clear existing rows
         self._table.clear()
         self._model_ids = []
         
         if not models:
             return
         
-        # Add rows for each model
+        loading_id = self._store.model_loading.value
+        
         for model in models:
-            status = "● Loaded" if model.loaded else "○ Standby"
-            size_str = format_size(model.size) if model.size > 0 else "-"
-            quant = model.quantization if model.quantization != "-" else extract_quantization(model.id)
-            # Show loaded context / max context
-            if model.loaded and model.loaded_context_length > 0:
-                context = f"{model.loaded_context_length:,}"
-            elif model.max_context_length > 0:
-                context = f"{model.max_context_length:,}"
+            # Show loading state if this model is being loaded
+            if model.id == loading_id:
+                status = "⏳ Loading..."
+            elif model.loaded:
+                status = "● Loaded"
             else:
-                context = "-"
+                status = "○ Standby"
             
-            # Truncate model name if too long - allow 4 more chars
             display_name = model.name or model.id
             if len(display_name) > 34:
                 display_name = display_name[:31] + "..."
             
-            self._table.add_row(
-                status,
-                display_name
-            )
+            self._table.add_row(status, display_name)
             self._model_ids.append(model.id)
 
     def _get_selected_model_id(self) -> Optional[str]:
-        """Get the ID of the currently selected model.
-        
-        Returns:
-            Model ID if a row is selected, None otherwise.
-        """
+        """Get the ID of the currently selected model."""
         if not self._table or self._table.cursor_row is None:
             return None
         
@@ -268,133 +416,116 @@ class ModelsPanel(Container):
         return None
 
     def _get_model_by_id(self, model_id: str) -> Optional[ModelInfo]:
-        """Get model info by ID.
-        
-        Args:
-            model_id: Model identifier.
-            
-        Returns:
-            ModelInfo if found, None otherwise.
-        """
+        """Get model info by ID."""
         for model in self._store.models.value:
             if model.id == model_id:
                 return model
         return None
 
     async def action_load_model(self) -> None:
-        """Load the selected model."""
-        logger.info("=== action_load_model called ===")
+        """Load the selected model with configured options."""
         model_id = self._get_selected_model_id()
-        logger.info(f"Selected model_id: {model_id}")
 
         if not model_id:
             self.app.notify("No model selected", severity="warning")
-            logger.warning("No model selected")
             return
 
         model = self._get_model_by_id(model_id)
-        logger.info(f"Found model: {model}")
 
         if model and model.loaded:
             self.app.notify(f"Model '{model.name or model_id}' is already loaded", severity="information")
-            logger.info(f"Model already loaded: {model_id}")
             return
 
-        self._loading = True
-        self.app.notify(f"Loading model '{model_id}'...")
-        logger.info(f"Starting load for model: {model_id}")
+        # Get configuration for this model
+        config = self._store.get_model_config(model_id)
+        
+        # Determine context length
+        if config.context_length == -1:  # Max VRAM
+            # Calculate based on available VRAM
+            total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value)
+            used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value)
+            available_vram = max(0, total_vram - used_vram)
+            context_length = self._store.calculate_max_context(model_id, available_vram)
+        elif config.context_length == -2:  # Max supported
+            if model and model.max_context_length > 0:
+                context_length = model.max_context_length
+            else:
+                context_length = 8192
+        else:
+            context_length = config.context_length
+
+        # Set loading state
+        self._store.model_loading.value = model_id
+        self.app.notify(f"Loading '{model_id}' with {context_length:,} context...")
 
         try:
             client = self._store.api_client
-            logger.info(f"API client: {client}")
 
             if not client:
                 self.app.notify("Not connected to server", severity="error")
-                logger.error("No API client - not connected")
                 return
 
-            # Use conservative context length to prevent OOM
-            # Model max is often 262k which requires ~25GB KV cache
-            # 8k context is sufficient for most tasks and only needs ~0.8GB
-            context_length = 8192
-            logger.info(f"Using conservative context_length={context_length} for load")
+            # Load model with configuration
+            result = await client.load_model(
+                model_id,
+                context_length=context_length,
+                gpu_offload=config.gpu_offload_percent if config.gpu_offload_percent >= 0 else None
+            )
 
-            logger.info(f"Calling client.load_model({model_id}, context_length={context_length})")
-            result = await client.load_model(model_id, context_length=context_length)
-            logger.info(f"load_model result: {result}")
-
-            self.app.notify(f"Model '{model_id}' loaded successfully", severity="information")
-
-            # Trigger a refresh
-            logger.info("Refreshing models after load")
+            # Check if actually loaded by refreshing
             await self._refresh_models()
+            
+            # Verify load succeeded
+            updated_model = self._get_model_by_id(model_id)
+            if updated_model and updated_model.loaded:
+                self.app.notify(f"✓ Model '{model_id}' loaded successfully", severity="information")
+            else:
+                self.app.notify(f"⚠ Model load may have failed - check logs", severity="warning")
 
         except Exception as e:
             logger.error(f"Failed to load model {model_id}: {e}", exc_info=True)
             self.app.notify(f"Failed to load model: {e}", severity="error")
         finally:
-            self._loading = False
-            logger.info("=== action_load_model complete ===")
+            self._store.model_loading.value = None
 
     async def action_unload_model(self) -> None:
         """Unload the selected model."""
-        logger.info("=== action_unload_model called ===")
         model_id = self._get_selected_model_id()
-        logger.info(f"Selected model_id for unload: {model_id}")
         
         if not model_id:
             self.app.notify("No model selected", severity="warning")
-            logger.warning("No model selected for unload")
             return
         
         model = self._get_model_by_id(model_id)
-        logger.info(f"Found model for unload: {model}, loaded={model.loaded if model else 'N/A'}")
         
         if model and not model.loaded:
             self.app.notify(f"Model '{model.name or model_id}' is not loaded", severity="information")
-            logger.info(f"Model not loaded, skipping unload: {model_id}")
             return
         
         if not model or not model.instance_id:
             self.app.notify("No instance ID available for unload", severity="error")
-            logger.error(f"No instance_id for model: {model_id}")
             return
         
-        self._loading = True
         self.app.notify(f"Unloading model '{model_id}'...")
-        logger.info(f"Starting unload for model: {model_id} with instance_id: {model.instance_id}")
         
         try:
             client = self._store.api_client
-            logger.info(f"API client for unload: {client}")
             
             if not client:
                 self.app.notify("Not connected to server", severity="error")
-                logger.error("No API client - not connected for unload")
                 return
             
-            logger.info(f"Calling client.unload_model(instance_id={model.instance_id})")
-            result = await client.unload_model(model.instance_id)
-            logger.info(f"unload_model result: {result}")
+            await client.unload_model(model.instance_id)
             
-            self.app.notify(f"Model '{model_id}' unloaded successfully", severity="information")
-            logger.info(f"Unload success for {model_id}")
-            
-            # Clear active model if it was this one
             if self._store.active_model.value == model_id:
                 self._store.active_model.value = None
-                logger.info(f"Cleared active model: {model_id}")
             
-            # Trigger a refresh
-            logger.info("Refreshing models after unload")
             await self._refresh_models()
+            self.app.notify(f"Model '{model_id}' unloaded", severity="information")
             
         except Exception as e:
             logger.error(f"Failed to unload model {model_id}: {e}", exc_info=True)
             self.app.notify(f"Failed to unload model: {e}", severity="error")
-        finally:
-            self._loading = False
-            logger.info("=== action_unload_model complete ===")
 
     def action_show_details(self) -> None:
         """Show details for the selected model."""
@@ -403,7 +534,6 @@ class ModelsPanel(Container):
             self.app.notify("No model selected", severity="warning")
             return
         
-        # Import here to avoid circular imports
         from lmstudio_tui.screens.model_detail_screen import ModelDetailScreen
         self.app.push_screen(ModelDetailScreen(model_id))
 
@@ -430,15 +560,29 @@ class ModelsPanel(Container):
             self.app.notify(f"Failed to refresh: {e}", severity="error")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection - update active model.
-        
-        Args:
-            event: Row selection event.
-        """
+        """Handle row selection - update active model and config."""
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._model_ids):
             model_id = self._model_ids[row_idx]
             self._store.set_active_model(model_id)
+            self._selected_model_id = model_id
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle config select changes."""
+        model_id = self._get_selected_model_id()
+        if not model_id:
+            return
+        
+        config = self._store.get_model_config(model_id)
+        
+        if event.select.id == "offload_select":
+            config.gpu_offload_percent = event.value if event.value is not None else -1
+        elif event.select.id == "context_select":
+            config.context_length = event.value if event.value is not None else 8192
+        elif event.select.id == "kv_quant_select":
+            config.kv_cache_quantization = event.value if event.value is not None else "f16"
+        
+        self._store.set_model_config(model_id, config)
 
     def key_l(self) -> None:
         """Handle 'l' key - load model."""

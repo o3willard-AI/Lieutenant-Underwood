@@ -122,14 +122,20 @@ class LMStudioClient:
             logger.error(f"Failed to get models: {e}")
             raise
 
-    async def load_model(self, model_id: str, context_length: Optional[int] = None) -> bool:
+    async def load_model(
+        self,
+        model_id: str,
+        context_length: Optional[int] = None,
+        gpu_offload: Optional[int] = None
+    ) -> bool:
         """Load a model into memory.
 
         POST /v1/models/load
 
         Args:
             model_id: Identifier of the model to load.
-            context_length: Context window size (defaults to model's max if not specified).
+            context_length: Context window size (defaults to 8192 if not specified).
+            gpu_offload: Percentage of layers to offload to GPU (0-100, negative for max).
 
         Returns:
             True if the model was loaded successfully.
@@ -137,19 +143,24 @@ class LMStudioClient:
         Raises:
             httpx.HTTPError: If the request fails.
         """
-        logger.info(f"API: load_model called with model_id={model_id}, context_length={context_length}")
+        logger.info(f"API: load_model called with model_id={model_id}, context_length={context_length}, gpu_offload={gpu_offload}")
         try:
             logger.info(f"API: POST {self.base_url}/api/v1/models/load (timeout=120s)")
 
             # Build request payload per LM Studio API docs
             # https://lmstudio.ai/docs/developer/rest/load
-            # Model weights offload to GPU automatically
-            # Set context_length to prevent massive KV cache allocation (scales with context)
             payload: dict[str, Any] = {
                 "model": model_id,
                 "context_length": context_length if context_length is not None else 8192,
                 "flash_attention": True,
             }
+
+            # Add GPU offload if specified
+            if gpu_offload is not None:
+                if gpu_offload < 0:
+                    payload["gpu_offload"] = "max"
+                else:
+                    payload["gpu_offload"] = gpu_offload
 
             # Load can take 30-120 seconds for large models
             response = await self._client.post(

@@ -297,6 +297,42 @@ class GPUPanel(Container):
         height: auto;
         padding: 1;
     }
+    GPUPanel Static.title {
+        text-style: bold;
+        color: $primary;
+        height: 1;
+        content-align: left middle;
+    }
+    GPUPanel Static.header-row {
+        layout: horizontal;
+        height: 1;
+        text-style: bold;
+        color: $text-muted;
+        border-bottom: solid $surface;
+        margin-bottom: 0;
+    }
+    GPUPanel Static.header-name {
+        width: 25;
+    }
+    GPUPanel Static.header-util {
+        width: 8;
+        content-align: center middle;
+    }
+    GPUPanel Static.header-vram-bar {
+        width: 20;
+        content-align: center middle;
+    }
+    GPUPanel Static.header-vram-text {
+        width: 15;
+    }
+    GPUPanel Static.header-temp {
+        width: 8;
+        content-align: center middle;
+    }
+    GPUPanel Static.header-power {
+        width: 12;
+        content-align: right middle;
+    }
     GPUPanel Static.error {
         color: $error;
         text-style: bold;
@@ -405,5 +441,15 @@ class GPUPanel(Container):
 
     def compose(self):
         """Compose initial content."""
+        # Title
+        yield Static("🎮 GPU STATUS", classes="title")
+        # Header row for column labels
+        with Horizontal(classes="header-row"):
+            yield Static("GPU Name", classes="header-name")
+            yield Static("Util%", classes="header-util")
+            yield Static("VRAM Use", classes="header-vram-bar")
+            yield Static("VRAM", classes="header-vram-text")
+            yield Static("Temp", classes="header-temp")
+            yield Static("Power", classes="header-power")
         # Initial state handled by on_mount via reactive bindings
         yield Static("Loading GPU info...", classes="no-gpu")

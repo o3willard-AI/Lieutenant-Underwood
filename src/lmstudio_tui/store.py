@@ -114,6 +114,18 @@ class ReactiveVar(Generic[T]):
 
 
 @dataclass
+class ModelLoadConfig:
+    """Per-model load configuration stored as defaults.
+
+    These settings are persisted per-model and used when loading.
+    Changes require unload+reload to take effect.
+    """
+    gpu_offload_percent: int = 100  # 0-100 or -1 for "Max"
+    context_length: int = 8192  # Selected from predefined options
+    kv_cache_quantization: str = "f16"  # f16, q8_0, q4_0, etc.
+
+
+@dataclass
 class StoreState:
     """Container for all reactive state fields.
 
@@ -128,6 +140,11 @@ class StoreState:
     models_error: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
     server_connected: ReactiveVar[bool] = field(default_factory=lambda: ReactiveVar(False))
     last_error: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
+    # Model loading state for UI feedback
+    model_loading: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
+    model_loading_dots: ReactiveVar[int] = field(default_factory=lambda: ReactiveVar(0))
+    # Per-model load configurations (model_id -> config)
+    model_configs: ReactiveVar[dict[str, ModelLoadConfig]] = field(default_factory=lambda: ReactiveVar({}))
 
 
 class RootStore:
@@ -222,6 +239,21 @@ class RootStore:
     def last_error(self) -> ReactiveVar[Optional[str]]:
         """Most recent global error message."""
         return self._state.last_error
+
+    @property
+    def model_loading(self) -> ReactiveVar[Optional[str]]:
+        """ID of model currently being loaded (None if not loading)."""
+        return self._state.model_loading
+
+    @property
+    def model_loading_dots(self) -> ReactiveVar[int]:
+        """Animation counter for loading dots."""
+        return self._state.model_loading_dots
+
+    @property
+    def model_configs(self) -> ReactiveVar[dict[str, ModelLoadConfig]]:
+        """Per-model load configurations."""
+        return self._state.model_configs
 
     # Configuration Methods
 
@@ -431,6 +463,75 @@ class RootStore:
         self.models_error.value = None
         self.last_error.value = None
         logger.debug("All error fields cleared")
+
+    def get_model_config(self, model_id: str) -> ModelLoadConfig:
+        """Get load configuration for a model.
+
+        Returns existing config or creates default if not set.
+
+        Args:
+            model_id: The model identifier.
+
+        Returns:
+            ModelLoadConfig for the model.
+        """
+        configs = self.model_configs.value
+        if model_id not in configs:
+            configs[model_id] = ModelLoadConfig()
+            self.model_configs.value = configs  # Trigger reactive update
+        return configs[model_id]
+
+    def set_model_config(self, model_id: str, config: ModelLoadConfig) -> None:
+        """Set load configuration for a model.
+
+        Args:
+            model_id: The model identifier.
+            config: The load configuration to store.
+        """
+        configs = self.model_configs.value
+        configs[model_id] = config
+        self.model_configs.value = configs  # Trigger reactive update
+        logger.info(f"Updated load config for model: {model_id}")
+
+    def calculate_max_context(self, model_id: str, vram_available_mb: int) -> int:
+        """Calculate maximum context length that fits in available VRAM.
+
+        Args:
+            model_id: The model identifier.
+            vram_available_mb: Available VRAM in MB.
+
+        Returns:
+            Maximum context length that fits.
+        """
+        # Find the model info
+        model_info = None
+        for m in self.models.value:
+            if m.id == model_id:
+                model_info = m
+                break
+
+        if not model_info:
+            return 8192  # Default fallback
+
+        max_supported = model_info.max_context_length
+        if max_supported <= 0:
+            max_supported = 262144  # Assume large if unknown
+
+        # Rough calculation: KV cache uses ~4 bytes per token per parameter
+        # For a typical 7B model: ~28MB per 1k context
+        # For a 30B model: ~120MB per 1k context
+        # This is a simplified estimate
+        model_size_gb = model_info.size / (1024**3) if model_info.size > 0 else 7.0
+        mb_per_1k_context = model_size_gb * 4  # Rough estimate
+
+        if mb_per_1k_context <= 0:
+            return 8192
+
+        max_context_1k = int(vram_available_mb / mb_per_1k_context)
+        max_context = max_context_1k * 1024
+
+        # Cap at model's max supported
+        return min(max_context, max_supported)
 
 
 def get_store() -> RootStore:

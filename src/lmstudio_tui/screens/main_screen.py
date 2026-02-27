@@ -9,10 +9,11 @@ from lmstudio_tui import __version__
 from lmstudio_tui.widgets.ascii_logo import AsciiLogo
 from lmstudio_tui.widgets.gpu_panel import GPUPanel
 from lmstudio_tui.widgets.models_panel import ModelsPanel
+from lmstudio_tui.widgets.chat_panel import ChatPanel
 
 
 class MainScreen(Screen):
-    """Main dashboard screen with GPU and Models panels."""
+    """Main dashboard screen with GPU, Models, and Chat panels."""
 
     DEFAULT_CSS = """
     MainScreen {
@@ -26,9 +27,18 @@ class MainScreen(Screen):
         width: 100%;
         height: 1fr;
     }
-    #gpu-panel {
+    #left-column {
         width: 40%;
         height: 100%;
+        layout: vertical;
+    }
+    #gpu-panel {
+        width: 100%;
+        height: 60%;
+    }
+    #chat-panel {
+        width: 100%;
+        height: 40%;
     }
     #models-panel {
         width: 60%;
@@ -47,7 +57,11 @@ class MainScreen(Screen):
         yield Vertical(
             Container(AsciiLogo(), id="logo-container"),
             Horizontal(
-                GPUPanel(id="gpu-panel"),
+                Vertical(
+                    GPUPanel(id="gpu-panel"),
+                    ChatPanel(id="chat-panel"),
+                    id="left-column"
+                ),
                 ModelsPanel(id="models-panel"),
                 id="content-row"
             ),
