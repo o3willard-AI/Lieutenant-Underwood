@@ -44,6 +44,7 @@ class LMStudioApp(App):
         """Initialize the application and store."""
         super().__init__(*args, **kwargs)
         self.store: RootStore = get_store()
+        self._shutdown_event = asyncio.Event()
         # Load config from default location
         self.store.load_config()
 
@@ -73,12 +74,8 @@ class LMStudioApp(App):
         GPU metrics and updating the store. Exceptions are caught and
         stored in the error fields without crashing the worker.
         """
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                worker = get_current_worker()
-                if worker.is_cancelled:
-                    break
-
                 monitor = self.store.gpu_monitor
                 if monitor is None:
                     # GPU monitoring stopped, exit worker
@@ -92,8 +89,14 @@ class LMStudioApp(App):
                 self.store.gpu_error.value = str(e)
                 self.store.last_error.value = f"GPU Monitor Error: {e}"
 
-            # Sleep for configured update frequency
-            await asyncio.sleep(self.store.config.value.gpu.update_frequency)
+            # Wait for shutdown signal or timeout
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self.store.config.value.gpu.update_frequency
+                )
+            except asyncio.TimeoutError:
+                pass
 
     async def _models_update_worker(self) -> None:
         """Update model list every 5.0 seconds.
@@ -103,13 +106,8 @@ class LMStudioApp(App):
         state based on fetch success/failure.
         """
         logger.info("=== Models update worker started ===")
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                worker = get_current_worker()
-                if worker.is_cancelled:
-                    logger.info("Models worker cancelled")
-                    break
-
                 # Ensure API client is connected
                 if self.store.api_client is None and not self.store.connect_to_server():
                     logger.warning("API client not connected, waiting...")
@@ -141,7 +139,14 @@ class LMStudioApp(App):
                 self.store.server_connected.value = False
                 self.store.last_error.value = f"API Error: {e}"
 
-            await asyncio.sleep(5.0)
+            # Wait for shutdown signal or timeout
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                pass
 
     async def _connection_check_worker(self) -> None:
         """Check server connection periodically.
@@ -153,12 +158,8 @@ class LMStudioApp(App):
         self.store.connect_to_server()
 
         # Continue checking connection every 30 seconds
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                worker = get_current_worker()
-                if worker.is_cancelled:
-                    break
-
                 # Simple health check - if we have an API client, we're connected
                 if self.store.api_client is not None:
                     self.store.server_connected.value = True
@@ -170,7 +171,14 @@ class LMStudioApp(App):
                 self.store.server_connected.value = False
                 self.store.last_error.value = f"Connection Check Error: {e}"
 
-            await asyncio.sleep(30.0)
+            # Wait for shutdown signal or timeout
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                pass
 
     def action_refresh(self) -> None:
         """Refresh all data."""
@@ -215,7 +223,9 @@ class LMStudioApp(App):
             self.notify(f"Error unloading model: {e}", severity="error")
 
     async def on_shutdown(self) -> None:
-        """App shutdown - cleanup resources."""
+        """App shutdown - signal all workers to exit gracefully."""
+        self._shutdown_event.set()
+        await asyncio.sleep(0.1)  # Wait for workers to exit
         self.store.stop_gpu_monitoring()
         self.store.disconnect_from_server()
 
