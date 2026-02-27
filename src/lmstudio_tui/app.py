@@ -81,11 +81,8 @@ class LMStudioApp(App):
                 severity="warning",
             )
 
-        # Start models update worker
+        # Start models update worker (also handles connection health)
         self.run_worker(self._models_update_worker(), name="models_updater")
-
-        # Initial connection check
-        self.run_worker(self._connection_check_worker(), name="connection_checker")
 
     async def _gpu_update_worker(self) -> None:
         """Update GPU metrics every config.gpu.update_frequency seconds.
@@ -164,38 +161,6 @@ class LMStudioApp(App):
                 await asyncio.wait_for(
                     self._shutdown_event.wait(),
                     timeout=5.0
-                )
-            except asyncio.TimeoutError:
-                pass
-
-    async def _connection_check_worker(self) -> None:
-        """Check server connection periodically.
-
-        This worker performs an initial connection check and then
-        periodically verifies the connection is still alive.
-        """
-        # Initial connection attempt
-        self.store.connect_to_server()
-
-        # Continue checking connection every 30 seconds
-        while not self._shutdown_event.is_set():
-            try:
-                # Simple health check - if we have an API client, we're connected
-                if self.store.api_client is not None:
-                    self.store.server_connected.value = True
-                else:
-                    # Try to reconnect
-                    self.store.connect_to_server()
-
-            except Exception as e:
-                self.store.server_connected.value = False
-                self.store.last_error.value = f"Connection Check Error: {e}"
-
-            # Wait for shutdown signal or timeout
-            try:
-                await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=30.0
                 )
             except asyncio.TimeoutError:
                 pass
