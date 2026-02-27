@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from rich.text import Text
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.reactive import reactive
 from textual.widgets import Static
 
