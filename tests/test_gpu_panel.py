@@ -245,7 +245,7 @@ class TestGPUPanel:
         """Test GPUPanel initializes correctly."""
         panel = GPUPanel()
         assert panel._store is not None
-        assert panel._gpu_cards == []
+        assert panel._data_table is None  # Set after compose
 
     @pytest.mark.skip(reason="Reactive binding requires Textual app context")
     def test_reactive_metrics_binding(self):

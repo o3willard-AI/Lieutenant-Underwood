@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from rich.text import Text
-from textual.containers import Container, Horizontal
+from textual.containers import Container
 from textual.reactive import reactive
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 
 from lmstudio_tui.gpu.monitor import GPUMetrics
 from lmstudio_tui.store import get_store
@@ -286,8 +286,8 @@ class GPUCard(Container):
 
 class GPUPanel(Container):
     """Container with reactive binding to store.
-    
-    Watches gpu_metrics from the store and renders GPUCards.
+
+    Watches gpu_metrics from the store and renders GPU info in a DataTable.
     Shows error message if gpu_error is set.
     """
 
@@ -303,35 +303,14 @@ class GPUPanel(Container):
         height: 1;
         content-align: left middle;
     }
-    GPUPanel Static.header-row {
-        layout: horizontal;
-        height: 1;
+    GPUPanel DataTable {
+        width: 100%;
+        height: auto;
+        border: solid $primary;
+    }
+    GPUPanel DataTable > .datatable--header {
         text-style: bold;
-        color: $text-muted;
-        border-bottom: solid $surface;
-        margin-bottom: 0;
-    }
-    GPUPanel Static.header-name {
-        width: 25;
-    }
-    GPUPanel Static.header-util {
-        width: 8;
-        content-align: center middle;
-    }
-    GPUPanel Static.header-vram-bar {
-        width: 20;
-        content-align: center middle;
-    }
-    GPUPanel Static.header-vram-text {
-        width: 15;
-    }
-    GPUPanel Static.header-temp {
-        width: 8;
-        content-align: center middle;
-    }
-    GPUPanel Static.header-power {
-        width: 12;
-        content-align: right middle;
+        color: $primary;
     }
     GPUPanel Static.error {
         color: $error;
@@ -352,7 +331,7 @@ class GPUPanel(Container):
         """Initialize GPU panel with store binding."""
         super().__init__(**kwargs)
         self._store = get_store()
-        self._gpu_cards: list[GPUCard] = []
+        self._data_table: DataTable | None = None
 
     def on_mount(self) -> None:
         """Mount panel and set up store watchers."""
@@ -364,15 +343,33 @@ class GPUPanel(Container):
         self._unwatch_error = self._store.gpu_error.watch(
             self._on_error_change
         )
-        
+
+        # Initialize DataTable columns
+        if self._data_table:
+            self._setup_data_table()
+
         # Initial render if data already available
         initial_metrics = self._store.gpu_metrics.value
         if initial_metrics:
             self._gpu_metrics = initial_metrics
-        
+
         initial_error = self._store.gpu_error.value
         if initial_error:
             self._gpu_error = initial_error
+
+    def _setup_data_table(self) -> None:
+        """Set up DataTable columns."""
+        if not self._data_table:
+            return
+
+        self._data_table.show_header = True
+        self._data_table.header_height = 1
+        self._data_table.add_column("GPU", width=25)
+        self._data_table.add_column("Model", width=20)
+        self._data_table.add_column("VRAM Total", width=12)
+        self._data_table.add_column("VRAM Used", width=12)
+        self._data_table.add_column("Temp", width=8)
+        self._data_table.add_column("Util", width=8)
 
     def on_unmount(self) -> None:
         """Unmount panel and clean up watchers."""
@@ -383,7 +380,7 @@ class GPUPanel(Container):
 
     def _on_metrics_change(self, old: list[GPUMetrics], new: list[GPUMetrics]) -> None:
         """Handle GPU metrics change from store.
-        
+
         Args:
             old: Previous metrics list.
             new: New metrics list.
@@ -392,7 +389,7 @@ class GPUPanel(Container):
 
     def _on_error_change(self, old: str | None, new: str | None) -> None:
         """Handle GPU error change from store.
-        
+
         Args:
             old: Previous error (if any).
             new: New error (if any).
@@ -400,56 +397,58 @@ class GPUPanel(Container):
         self._gpu_error = new
 
     def watch__gpu_metrics(self, metrics: list[GPUMetrics]) -> None:
-        """React to metrics change - rebuild GPU cards."""
-        self._rebuild_cards(metrics)
+        """React to metrics change - update DataTable."""
+        self._update_data_table(metrics)
 
     def watch__gpu_error(self, error: str | None) -> None:
         """React to error change - show error message."""
         if error:
             self._show_error(error)
 
-    def _rebuild_cards(self, metrics: list[GPUMetrics]) -> None:
-        """Rebuild GPU cards based on metrics.
-        
+    def _update_data_table(self, metrics: list[GPUMetrics]) -> None:
+        """Update DataTable with GPU metrics.
+
         Args:
             metrics: List of GPUMetrics to display.
         """
-        # Clear existing content
-        self.remove_children()
-        self._gpu_cards = []
-        
-        if not metrics:
-            # No GPUs detected
-            self.mount(Static("No GPUs detected", classes="no-gpu"))
+        if not self._data_table:
             return
-        
-        # Create/update GPU cards
+
+        # Clear existing rows
+        self._data_table.clear()
+
+        if not metrics:
+            # No GPUs detected - add a message row
+            self._data_table.add_row("No GPUs detected", "", "", "", "", "")
+            return
+
+        # Add GPU data rows
         for metric in metrics:
-            card = GPUCard(metric)
-            self._gpu_cards.append(card)
-            self.mount(card)
+            vram_total_gb = metric.vram_total / 1024
+            vram_used_gb = metric.vram_used / 1024
+            self._data_table.add_row(
+                metric.name,
+                metric.model or "Unknown",
+                f"{vram_total_gb:.1f} GB",
+                f"{vram_used_gb:.1f} GB",
+                f"{metric.temperature}°C",
+                f"{metric.utilization}%"
+            )
 
     def _show_error(self, error: str) -> None:
         """Display error message.
-        
+
         Args:
             error: Error message to display.
         """
         self.remove_children()
-        self._gpu_cards = []
+        self._data_table = None
         self.mount(Static(f"GPU Error: {error}", classes="error"))
 
     def compose(self):
         """Compose initial content."""
         # Title
         yield Static("🎮 GPU STATUS", classes="title")
-        # Header row for column labels
-        with Horizontal(classes="header-row"):
-            yield Static("GPU Name", classes="header-name")
-            yield Static("Util%", classes="header-util")
-            yield Static("VRAM Use", classes="header-vram-bar")
-            yield Static("VRAM", classes="header-vram-text")
-            yield Static("Temp", classes="header-temp")
-            yield Static("Power", classes="header-power")
-        # Initial state handled by on_mount via reactive bindings
-        yield Static("Loading GPU info...", classes="no-gpu")
+        # DataTable for GPU info with header row
+        self._data_table = DataTable(show_header=True, header_height=1)
+        yield self._data_table
