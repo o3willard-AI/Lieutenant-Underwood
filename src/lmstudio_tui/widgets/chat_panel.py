@@ -109,6 +109,9 @@ class ChatPanel(Container):
         # Add welcome message
         self._add_message("system", "Welcome! Chat with a loaded model or use /commands.")
         self._update_history_display()
+        # FIX: Set focus on input so typing works immediately
+        if self._input_widget:
+            self._input_widget.focus()
 
     def _add_message(self, role: str, message: str) -> None:
         """Add a message to chat history.
@@ -239,50 +242,60 @@ class ChatPanel(Container):
             self._add_message("system", f"Model not loaded. Press 'l' in Models panel to load.")
 
     async def _handle_chat(self, message: str) -> None:
-        """Handle regular chat message.
-        
+        """Handle regular chat message with streaming response.
+
         Args:
             message: User's chat message.
         """
+        # Add user message to history
         self._add_message("user", message)
-        
+
         # Get active model
         active_model = self._store.active_model.value
         if not active_model:
             self._add_message("error", "No active model selected. Select a loaded model first.")
             return
-        
+
         # Check if model is loaded
         model_info = None
         for m in self._store.models.value:
             if m.id == active_model:
                 model_info = m
                 break
-        
+
         if not model_info or not model_info.loaded:
             self._add_message("error", f"Model '{active_model}' is not loaded. Load it first.")
             return
-        
+
         # Send to API
         try:
             client = self._store.api_client
             if not client:
                 self._add_message("error", "Not connected to server")
                 return
-            
-            # Simple completion request
-            self._add_message("system", "Thinking...")
-            
-            # Note: This requires a completion/chat endpoint implementation
-            # For now, just echo back
-            logger.info(f"Chat message to {active_model}: {message}")
-            
-            # Placeholder: In a full implementation, this would call the chat API
-            # response = await client.chat_completion(active_model, message)
-            # self._add_message("assistant", response)
-            
-            self._add_message("assistant", f"[Echo from {active_model}]: {message}")
-            
+
+            # Build conversation history from chat history
+            conversation = [
+                {"role": role, "content": content}
+                for role, content in self._chat_history
+                if role in ("user", "assistant")  # Only send actual chat messages
+            ]
+
+            # Add placeholder for assistant response (will be updated during stream)
+            self._chat_history.append(("assistant", ""))
+            assistant_index = len(self._chat_history) - 1
+            self._update_history_display()
+
+            # Stream response from API
+            full_response = ""
+            async for chunk in client.chat_completion(active_model, conversation):
+                full_response += chunk
+                # Update in-place for reactive UI refresh
+                self._chat_history[assistant_index] = ("assistant", full_response)
+                self._update_history_display()
+
+            logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
+
         except Exception as e:
             logger.error(f"Chat failed: {e}")
             self._add_message("error", f"Chat failed: {e}")

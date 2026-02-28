@@ -1,6 +1,8 @@
 """LM Studio API client."""
 
+import json
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -215,6 +217,76 @@ class LMStudioClient:
         """
         models = await self.get_models()
         return [m for m in models if m.loaded]
+
+    async def chat_completion(
+        self,
+        model_id: str,
+        messages: list[dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = -1,
+        stream: bool = True,
+    ) -> AsyncGenerator[str, None]:
+        """Send chat completion request with streaming support.
+
+        Uses LM Studio's /v1/chat/completions endpoint (OpenAI-compatible).
+        Yields text chunks as they arrive for real-time display.
+
+        Args:
+            model_id: The model identifier to use.
+            messages: List of message dicts with "role" and "content" keys.
+            temperature: Sampling temperature (0.0 - 2.0).
+            max_tokens: Max tokens to generate (-1 for no limit).
+            stream: Whether to stream the response.
+
+        Yields:
+            Text chunks as they arrive from the API.
+
+        Raises:
+            httpx.HTTPError: If the request fails.
+        """
+        payload: dict[str, Any] = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": stream,
+        }
+        if max_tokens > 0:
+            payload["max_tokens"] = max_tokens
+
+        try:
+            async with self._client.stream(
+                "POST",
+                "/v1/chat/completions",
+                json=payload,
+                timeout=300.0,  # 5 minute timeout for long generations
+            ) as response:
+                response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    line = line.strip()
+                    if not line or not line.startswith("data: "):
+                        continue
+
+                    data = line[6:]  # Remove "data: " prefix
+
+                    if data == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(data)
+                        choices = chunk.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse SSE chunk: {data}")
+                        continue
+
+        except httpx.HTTPError as e:
+            logger.error(f"Chat completion failed: {e}")
+            raise
 
     async def close(self) -> None:
         """Close the HTTP client and release resources."""
