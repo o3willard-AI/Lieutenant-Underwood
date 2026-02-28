@@ -167,6 +167,21 @@ class ModelsPanel(Container):
         height: 1;
         margin-top: 1;
     }
+    ModelsPanel Static.vram-estimate {
+        height: 1;
+        width: 100%;
+        content-align: center middle;
+        text-style: bold;
+    }
+    ModelsPanel Static.vram-estimate.green {
+        color: $success;
+    }
+    ModelsPanel Static.vram-estimate.yellow {
+        color: $warning;
+    }
+    ModelsPanel Static.vram-estimate.red {
+        color: $error;
+    }
     """
 
     # Reactive state tracking
@@ -187,6 +202,7 @@ class ModelsPanel(Container):
         self._offload_select: Optional[Select] = None
         self._context_select: Optional[Select] = None
         self._kv_quant_select: Optional[Select] = None
+        self._vram_estimate_widget: Optional[Static] = None
         self._animation_task: Optional[asyncio.Task] = None
 
     def compose(self):
@@ -238,6 +254,11 @@ class ModelsPanel(Container):
                 id="kv_quant_select"
             )
             yield self._kv_quant_select
+        
+        # VRAM/RAM Estimate row
+        yield Static("💾 MEMORY ESTIMATE", classes="config-title")
+        self._vram_estimate_widget = Static("Select a model to see estimate", classes="vram-estimate")
+        yield self._vram_estimate_widget
         
         yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
 
@@ -385,6 +406,106 @@ class ModelsPanel(Container):
             self._kv_quant_select.value = config.kv_cache_quantization
         except Exception:
             pass
+        
+        # Update memory estimate
+        self._update_memory_estimate(model_id)
+    
+    def _calculate_memory_estimate(
+        self,
+        model: ModelInfo,
+        context_length: int,
+        gpu_offload_percent: int,
+        kv_cache_quantization: str,
+    ) -> tuple[float, float]:
+        """Estimate VRAM and RAM usage for a model load configuration.
+        
+        Args:
+            model: Model info with size_bytes
+            context_length: Context window size in tokens
+            gpu_offload_percent: GPU offload percentage (-1 for max)
+            kv_cache_quantization: KV cache quantization type (f16, q8_0, q4_0)
+            
+        Returns:
+            Tuple of (estimated_vram_gb, estimated_ram_gb)
+        """
+        # Model weights memory (in GB)
+        model_weights_gb = model.size / (1024 ** 3)
+        
+        # KV cache bytes per token based on quantization
+        kv_bytes_per_token = {
+            "f16": 2.0,
+            "q8_0": 1.0,
+            "q4_0": 0.5,
+        }.get(kv_cache_quantization, 2.0)
+        
+        # Approximate KV cache size calculation
+        # Based on llama.cpp behavior: scales with model size and context length
+        # Typical formula: ~2 bytes per token per 1B params for F16
+        model_size_factor = max(1.0, model_weights_gb / 4.0)  # Scale with model size
+        kv_cache_gb = (2 * context_length * kv_bytes_per_token * model_size_factor) / (1024 ** 3)
+        
+        # Total working memory with overhead
+        overhead_gb = 0.5  # Additional overhead for activations, etc.
+        total_memory_gb = model_weights_gb + kv_cache_gb + overhead_gb
+        
+        # Split by GPU offload percentage
+        if gpu_offload_percent < 0:  # Max offload
+            vram_ratio = 1.0
+        else:
+            vram_ratio = gpu_offload_percent / 100.0
+        
+        estimated_vram = total_memory_gb * vram_ratio
+        estimated_ram = total_memory_gb * (1.0 - vram_ratio)
+        
+        return (estimated_vram, estimated_ram)
+    
+    def _update_memory_estimate(self, model_id: Optional[str] = None) -> None:
+        """Update the VRAM/RAM estimate display."""
+        if not self._vram_estimate_widget:
+            return
+        
+        if model_id is None:
+            model_id = self._get_selected_model_id()
+        
+        if not model_id:
+            self._vram_estimate_widget.update("Select a model to see estimate")
+            self._vram_estimate_widget.remove_class("green", "yellow", "red")
+            return
+        
+        # Get model info
+        model = self._get_model_by_id(model_id)
+        if not model:
+            self._vram_estimate_widget.update("Model info not available")
+            return
+        
+        # Get current config
+        config = self._store.get_model_config(model_id)
+        
+        # Calculate estimates
+        vram_gb, ram_gb = self._calculate_memory_estimate(
+            model=model,
+            context_length=config.context_length if config.context_length > 0 else 8192,
+            gpu_offload_percent=config.gpu_offload_percent,
+            kv_cache_quantization=config.kv_cache_quantization,
+        )
+        
+        # Get available VRAM
+        total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value) / 1024
+        used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value) / 1024
+        available_vram = max(0, total_vram - used_vram)
+        
+        # Format display
+        estimate_text = f"VRAM: {vram_gb:.1f}GB / Available: {available_vram:.1f}GB | RAM: {ram_gb:.1f}GB"
+        self._vram_estimate_widget.update(estimate_text)
+        
+        # Update color based on fit
+        self._vram_estimate_widget.remove_class("green", "yellow", "red")
+        if vram_gb < available_vram * 0.8:
+            self._vram_estimate_widget.add_class("green")
+        elif vram_gb <= available_vram:
+            self._vram_estimate_widget.add_class("yellow")
+        else:
+            self._vram_estimate_widget.add_class("red")
 
     def _rebuild_table(self, models: list[ModelInfo]) -> None:
         """Rebuild table rows based on models."""
@@ -593,6 +714,9 @@ class ModelsPanel(Container):
             config.kv_cache_quantization = event.value if event.value is not None else "f16"
         
         self._store.set_model_config(model_id, config)
+        
+        # Update memory estimate when config changes
+        self._update_memory_estimate(model_id)
 
     def key_l(self) -> None:
         """Handle 'l' key - load model."""
