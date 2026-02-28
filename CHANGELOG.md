@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **UAT Session 5:** Chat timeout, GPU headers, config layout, VRAM estimator
+  - **Fix 1:** Chat timeout and error handling with GPU-based health monitoring
+    - Added 30-second timeout for stalled streams (checks GPU activity)
+    - Graceful cancellation with user-friendly error messages
+    - Prevents "Thinking..." lockups with automatic recovery
+  - **Fix 2:** GPU panel DataTable headers now render correctly
+    - Headers (GPU, Model, VRAM Total, etc.) visible on app startup
+    - Fixed initialization timing in `on_mount()`
+  - **Fix 3:** Config menu compact vertical layout
+    - Selectors now directly under their labels
+    - Added descriptive text for each config option
+    - Reduced wasted horizontal space
+  - **Fix 5:** VRAM/RAM estimator row added to config panel
+    - Real-time calculation based on model size, context, offload %, KV quant
+    - Color-coded: green (fits), yellow (tight), red (won't fit)
+    - Updates when selection or GPU metrics change
+
 - **C2-race-condition:** Eliminated TOCTOU race condition in gpu_monitor access
   - Applied atomic reference capture pattern in `src/lmstudio_tui/app.py`
   - Captures `gpu_monitor` reference locally before checking/using it
