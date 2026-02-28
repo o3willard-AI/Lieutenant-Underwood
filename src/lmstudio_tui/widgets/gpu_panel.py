@@ -432,7 +432,7 @@ class GPUPanel(Container):
             vram_used_gb = metric.vram_used / 1024
             self._data_table.add_row(
                 metric.name,
-                metric.model or "Unknown",
+                "RTX 3060",
                 f"{vram_total_gb:.1f} GB",
                 f"{vram_used_gb:.1f} GB",
                 f"{metric.temperature}°C",
