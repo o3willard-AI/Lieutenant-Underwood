@@ -344,9 +344,13 @@ class GPUPanel(Container):
             self._on_error_change
         )
 
-        # Initialize DataTable columns
+        # Initialize DataTable columns BEFORE any data arrives
+        # This ensures headers are properly rendered
         if self._data_table:
             self._setup_data_table()
+            self._data_table.show_header = True
+            # Force a refresh to ensure headers render
+            self._data_table.refresh()
 
         # Initial render if data already available
         initial_metrics = self._store.gpu_metrics.value
