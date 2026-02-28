@@ -7,7 +7,9 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Optional
 
 from textual.containers import Container, Horizontal, Vertical
@@ -77,6 +79,9 @@ class ChatPanel(Container):
     """
 
     _chat_history: reactive[list[tuple[str, str]]] = reactive(list)  # (role, message)
+    _is_generating: reactive[bool] = reactive(False)
+    _last_chunk_time: reactive[float] = reactive(0.0)
+    _stream_timeout_seconds: float = 30.0  # Timeout after 30 seconds of no chunks
 
     def __init__(self, **kwargs):
         """Initialize chat panel."""
@@ -84,6 +89,8 @@ class ChatPanel(Container):
         self._store = get_store()
         self._history_widget: Optional[Static] = None
         self._input_widget: Optional[Input] = None
+        self._current_stream_task: Optional[asyncio.Task] = None
+        self._monitor_task: Optional[asyncio.Task] = None
 
     def compose(self):
         """Compose the chat panel widgets."""
@@ -247,6 +254,10 @@ class ChatPanel(Container):
         Args:
             message: User's chat message.
         """
+        # Cancel any existing stream
+        if self._is_generating:
+            self._cancel_current_stream()
+
         # Add user message to history
         self._add_message("user", message)
 
@@ -282,20 +293,112 @@ class ChatPanel(Container):
             ]
 
             # Add placeholder for assistant response (will be updated during stream)
-            self._chat_history.append(("assistant", ""))
+            self._chat_history.append(("assistant", "⏳ Thinking..."))
             assistant_index = len(self._chat_history) - 1
             self._update_history_display()
 
+            # Set generating state and start timeout monitor
+            self._is_generating = True
+            self._last_chunk_time = time.time()
+            self._monitor_task = asyncio.create_task(self._monitor_stream_health())
+
             # Stream response from API
             full_response = ""
-            async for chunk in client.chat_completion(active_model, conversation):
-                full_response += chunk
-                # Update in-place for reactive UI refresh
-                self._chat_history[assistant_index] = ("assistant", full_response)
+            try:
+                async for chunk in client.chat_completion(active_model, conversation):
+                    # Reset timeout tracker on each chunk
+                    self._last_chunk_time = time.time()
+                    
+                    # Remove "Thinking..." placeholder on first chunk
+                    if full_response == "" and chunk:
+                        full_response = chunk
+                    else:
+                        full_response += chunk
+                    
+                    # Update in-place for reactive UI refresh
+                    self._chat_history[assistant_index] = ("assistant", full_response)
+                    self._update_history_display()
+
+                logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
+
+            except asyncio.CancelledError:
+                # Stream was cancelled (timeout or user interruption)
+                logger.warning("Chat stream cancelled")
+                self._chat_history[assistant_index] = (
+                    "error",
+                    "Response timed out or was cancelled. Try again with a shorter message."
+                )
                 self._update_history_display()
+                raise  # Re-raise to be caught by outer handler
 
-            logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
-
+        except asyncio.CancelledError:
+            # Handle cancellation gracefully - message already updated above
+            pass
         except Exception as e:
             logger.error(f"Chat failed: {e}")
             self._add_message("error", f"Chat failed: {e}")
+        finally:
+            # Clean up state
+            self._is_generating = False
+            if self._monitor_task and not self._monitor_task.done():
+                self._monitor_task.cancel()
+            self._monitor_task = None
+
+    def _cancel_current_stream(self) -> None:
+        """Cancel the current streaming request if one is active."""
+        if self._current_stream_task and not self._current_stream_task.done():
+            self._current_stream_task.cancel()
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
+        self._is_generating = False
+
+    async def _monitor_stream_health(self) -> None:
+        """Monitor for stalled streams and timeout if needed.
+        
+        Checks every 5 seconds to see if chunks have stopped arriving.
+        If no chunks for _stream_timeout_seconds and GPU appears idle,
+        cancels the stream task to prevent indefinite hanging.
+        """
+        try:
+            while self._is_generating:
+                await asyncio.sleep(5)  # Check every 5 seconds
+                
+                if not self._is_generating:
+                    break
+                
+                time_since_chunk = time.time() - self._last_chunk_time
+                if time_since_chunk > self._stream_timeout_seconds:
+                    # Check GPU activity as secondary signal
+                    gpu_busy = self._check_gpu_active()
+                    
+                    if not gpu_busy:
+                        # Stream appears stalled - cancel it
+                        logger.warning(
+                            f"Stream timeout: No chunks for {time_since_chunk:.1f}s, GPU idle"
+                        )
+                        self._cancel_current_stream()
+                        break
+                    else:
+                        # GPU is still working, extend timeout
+                        logger.debug("GPU still active, extending timeout")
+                        self._last_chunk_time = time.time()  # Reset timer
+                        
+        except asyncio.CancelledError:
+            # Normal cancellation
+            pass
+        except Exception as e:
+            logger.error(f"Stream monitor error: {e}")
+
+    def _check_gpu_active(self) -> bool:
+        """Check if any GPU has significant utilization (>10%).
+        
+        Returns:
+            True if any GPU is busy, False otherwise.
+        """
+        try:
+            from lmstudio_tui.gpu.monitor import GPUMetrics
+            metrics = self._store.gpu_metrics.value
+            return any(g.utilization > 10 for g in metrics)
+        except Exception:
+            # If we can't check, assume GPU might be busy to be safe
+            return True
