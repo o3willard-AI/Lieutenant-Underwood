@@ -144,12 +144,22 @@ class ModelsPanel(Container):
         margin-top: 1;
     }
     ModelsPanel Static.config-label {
-        color: $text-muted;
-        width: 20;
-    }
-    ModelsPanel Static.config-value {
         color: $text;
-        width: auto;
+        text-style: bold;
+        height: 1;
+        width: 100%;
+        margin-top: 1;
+    }
+    ModelsPanel Static.config-desc {
+        color: $text-muted;
+        height: 1;
+        width: 100%;
+        text-style: italic;
+    }
+    ModelsPanel Select {
+        width: 100%;
+        margin-top: 0;
+        margin-bottom: 0;
     }
     ModelsPanel Static.config-note {
         color: $text-muted;
@@ -200,34 +210,34 @@ class ModelsPanel(Container):
         self._config_container = Container()
         with self._config_container:
             # GPU Offload
-            with Horizontal():
-                yield Static("GPU Offload:", classes="config-label")
-                self._offload_select = Select(
-                    OFFLOAD_OPTIONS,
-                    value=-1,
-                    id="offload_select"
-                )
-                yield self._offload_select
+            yield Static("GPU Offload", classes="config-label")
+            yield Static("Percentage of layers on GPU", classes="config-desc")
+            self._offload_select = Select(
+                OFFLOAD_OPTIONS,
+                value=-1,
+                id="offload_select"
+            )
+            yield self._offload_select
             
             # Context Length
-            with Horizontal():
-                yield Static("Context:", classes="config-label")
-                self._context_select = Select(
-                    CONTEXT_OPTIONS,
-                    value=8192,
-                    id="context_select"
-                )
-                yield self._context_select
+            yield Static("Context Length", classes="config-label")
+            yield Static("Token window for conversation", classes="config-desc")
+            self._context_select = Select(
+                CONTEXT_OPTIONS,
+                value=8192,
+                id="context_select"
+            )
+            yield self._context_select
             
             # KV Cache Quantization
-            with Horizontal():
-                yield Static("KV Cache:", classes="config-label")
-                self._kv_quant_select = Select(
-                    KV_QUANT_OPTIONS,
-                    value="f16",
-                    id="kv_quant_select"
-                )
-                yield self._kv_quant_select
+            yield Static("KV Cache Quantization", classes="config-label")
+            yield Static("Memory precision for attention cache", classes="config-desc")
+            self._kv_quant_select = Select(
+                KV_QUANT_OPTIONS,
+                value="f16",
+                id="kv_quant_select"
+            )
+            yield self._kv_quant_select
         
         yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
 
