@@ -277,9 +277,9 @@ level = "INFO"
 def launch_tui(host: str, port: int, args: argparse.Namespace) -> int:
     """Launch the TUI application."""
     try:
-        from lmstudio_tui.app import LMStudioTUI
+        from lmstudio_tui.app import LMStudioApp
     except ImportError:
-        print_error("Could not import LMStudioTUI")
+        print_error("Could not import LMStudioApp")
         print_info("Make sure Lieutenant-Underwood is properly installed")
         return 1
     
@@ -290,7 +290,7 @@ def launch_tui(host: str, port: int, args: argparse.Namespace) -> int:
         os.environ["LMSTUDIO_DEBUG"] = "1"
     
     try:
-        app = LMStudioTUI()
+        app = LMStudioApp()
         app.run()
         return 0
     except Exception as e:
