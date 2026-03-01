@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Optional
 
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Input, Static, Button
 
@@ -43,11 +43,13 @@ class ChatPanel(Container):
         height: 1;
         content-align: left middle;
     }
-    ChatPanel Static.chat-history {
+    ChatPanel VerticalScroll.chat-history {
         height: 8;
         border: solid $surface;
         padding: 0 1;
-        overflow-y: auto;
+    }
+    ChatPanel VerticalScroll.chat-history:focus {
+        border: solid $primary;
     }
     ChatPanel Static.chat-message {
         height: auto;
@@ -87,7 +89,8 @@ class ChatPanel(Container):
         """Initialize chat panel."""
         super().__init__(**kwargs)
         self._store = get_store()
-        self._history_widget: Optional[Static] = None
+        self._history_widget: Optional[VerticalScroll] = None
+        self._history_content: Optional[Static] = None
         self._input_widget: Optional[Input] = None
         self._current_stream_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
@@ -96,9 +99,10 @@ class ChatPanel(Container):
         """Compose the chat panel widgets."""
         yield Static("💬 CHAT / DOWNLOAD", classes="title")
         
-        # Chat history display
-        self._history_widget = Static("", classes="chat-history")
-        yield self._history_widget
+        # Chat history display (scrollable)
+        with VerticalScroll(classes="chat-history") as self._history_widget:
+            self._history_content = Static("", classes="chat-content")
+            yield self._history_content
         
         # Input field
         with Horizontal():
@@ -135,11 +139,11 @@ class ChatPanel(Container):
 
     def _update_history_display(self) -> None:
         """Update the history widget with current messages."""
-        if not self._history_widget:
+        if not self._history_content:
             return
         
         lines = []
-        for role, message in self._chat_history[-10:]:  # Show last 10
+        for role, message in self._chat_history[-50:]:  # Show last 50
             prefix = {
                 "user": "You: ",
                 "assistant": "Model: ",
@@ -148,7 +152,11 @@ class ChatPanel(Container):
             }.get(role, "")
             lines.append(f"{prefix}{message}")
         
-        self._history_widget.update("\n".join(lines) if lines else "No messages yet.")
+        self._history_content.update("\n".join(lines) if lines else "No messages yet.")
+        
+        # Auto-scroll to bottom
+        if self._history_widget:
+            self._history_widget.scroll_end(animate=False)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission.

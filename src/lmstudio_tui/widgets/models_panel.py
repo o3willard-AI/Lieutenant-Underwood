@@ -15,23 +15,23 @@ from typing import Optional
 from rich.text import Text
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import DataTable, Static, Input, Select
+from textual.widgets import DataTable, Static, Input, Select, Button
 
 from lmstudio_tui.api.client import LMStudioClient, ModelInfo
 from lmstudio_tui.store import get_store, ModelLoadConfig
 
 logger = logging.getLogger(__name__)
 
-# Context length options
+# Context length options (truncated to ≤30 chars for compact display)
 CONTEXT_OPTIONS = [
-    ("8K", 8192),
-    ("16K", 16384),
-    ("32K", 32768),
-    ("65K", 65536),
-    ("131K", 131072),
-    ("262K", 262144),
-    ("Max VRAM", -1),  # Special: calculate based on VRAM
-    ("Max Supported", -2),  # Special: use model's max
+    ("8K tokens", 8192),
+    ("16K tokens", 16384),
+    ("32K tokens", 32768),
+    ("65K tokens", 65536),
+    ("131K tokens", 131072),
+    ("262K tokens", 262144),
+    ("Auto (Max VRAM)", -1),  # Special: calculate based on VRAM
+    ("Auto (Model Max)", -2),  # Special: use model's max
 ]
 
 # GPU offload options
@@ -44,11 +44,11 @@ OFFLOAD_OPTIONS = [
     ("0%", 0),
 ]
 
-# KV cache quantization options
+# KV cache quantization options (truncated to ≤30 chars)
 KV_QUANT_OPTIONS = [
-    ("F16 (best quality)", "f16"),
-    ("Q8_0 (good quality)", "q8_0"),
-    ("Q4_0 (smaller)", "q4_0"),
+    ("F16 - Best quality", "f16"),
+    ("Q8_0 - Good quality", "q8_0"),
+    ("Q4_0 - Smallest", "q4_0"),
 ]
 
 
@@ -157,7 +157,9 @@ class ModelsPanel(Container):
         text-style: italic;
     }
     ModelsPanel Select {
-        width: 100%;
+        width: auto;
+        min-width: 20;
+        max-width: 35;
         margin-top: 0;
         margin-bottom: 0;
     }
@@ -182,6 +184,12 @@ class ModelsPanel(Container):
     ModelsPanel Static.vram-estimate.red {
         color: $error;
     }
+    ModelsPanel Button.calculate-btn {
+        width: auto;
+        min-width: 15;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
     """
 
     # Reactive state tracking
@@ -203,6 +211,7 @@ class ModelsPanel(Container):
         self._context_select: Optional[Select] = None
         self._kv_quant_select: Optional[Select] = None
         self._vram_estimate_widget: Optional[Static] = None
+        self._calculate_btn: Optional[Button] = None
         self._animation_task: Optional[asyncio.Task] = None
 
     def compose(self):
@@ -216,7 +225,7 @@ class ModelsPanel(Container):
         
         # Create data table
         self._table = DataTable()
-        self._table.add_columns("Status", "Model Name")
+        self._table.add_columns("Status", "Size", "Model Name")
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
@@ -254,10 +263,14 @@ class ModelsPanel(Container):
                 id="kv_quant_select"
             )
             yield self._kv_quant_select
+            
+            # Calculate button
+            self._calculate_btn = Button("🧮 CALCULATE", id="calculate_btn", classes="calculate-btn")
+            yield self._calculate_btn
         
         # VRAM/RAM Estimate row
         yield Static("💾 MEMORY ESTIMATE", classes="config-title")
-        self._vram_estimate_widget = Static("Select a model to see estimate", classes="vram-estimate")
+        self._vram_estimate_widget = Static("Press CALCULATE to see estimate", classes="vram-estimate")
         yield self._vram_estimate_widget
         
         yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
@@ -529,11 +542,14 @@ class ModelsPanel(Container):
             else:
                 status = "○ Standby"
             
-            display_name = model.name or model.id
-            if len(display_name) > 34:
-                display_name = display_name[:31] + "..."
+            # Format model size
+            size_str = format_size(model.size)
             
-            self._table.add_row(status, display_name)
+            display_name = model.name or model.id
+            if len(display_name) > 30:
+                display_name = display_name[:27] + "..."
+            
+            self._table.add_row(status, size_str, display_name)
             self._model_ids.append(model.id)
 
     def _get_selected_model_id(self) -> Optional[str]:

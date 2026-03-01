@@ -369,7 +369,6 @@ class GPUPanel(Container):
         self._data_table.show_header = True
         self._data_table.header_height = 1
         self._data_table.add_column("GPU", width=25)
-        self._data_table.add_column("Model", width=20)
         self._data_table.add_column("VRAM Total", width=12)
         self._data_table.add_column("VRAM Used", width=12)
         self._data_table.add_column("Temp", width=8)
@@ -432,7 +431,6 @@ class GPUPanel(Container):
             vram_used_gb = metric.vram_used / 1024
             self._data_table.add_row(
                 metric.name,
-                "RTX 3060",
                 f"{vram_total_gb:.1f} GB",
                 f"{vram_used_gb:.1f} GB",
                 f"{metric.temperature}°C",
