@@ -1,3 +1,3 @@
 """LM Studio TUI - Terminal UI for LM Studio headless server."""
 
-__version__ = "0.1.10-uat12"
+__version__ = "0.1.11-uat13"
