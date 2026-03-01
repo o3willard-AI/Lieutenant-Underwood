@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lmstudio-tui"
-version = "0.1.11-uat13"
+version = "0.2.0"
 description = "Terminal UI for LM Studio headless server monitoring and management"
 readme = "README.md"
 license = {text = "MIT"}
@@ -51,6 +51,7 @@ dev = [
 
 [project.scripts]
 lmstudio-tui = "lmstudio_tui.__main__:main"
+lmstui = "lmstudio_tui.launcher:main"
 
 [project.urls]
 Homepage = "https://github.com/lmstudio-tui/lmstudio-tui"
