@@ -756,7 +756,7 @@ class ModelsPanel(Container):
         """Handle Enter key - show details (only if Select not focused)."""
         # Don't intercept Enter if a Select widget has focus
         # (Select needs Enter to confirm dropdown selection)
-        if isinstance(self.focused, Select):
+        if isinstance(self.app.focused, Select):
             return
         self.action_show_details()
 
