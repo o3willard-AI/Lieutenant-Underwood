@@ -422,7 +422,7 @@ class GPUPanel(Container):
 
         if not metrics:
             # No GPUs detected - add a message row
-            self._data_table.add_row("No GPUs detected", "", "", "", "", "")
+            self._data_table.add_row("No GPUs detected", "", "", "", "")
             return
 
         # Add GPU data rows
