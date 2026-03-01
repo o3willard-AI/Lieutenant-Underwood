@@ -715,24 +715,34 @@ class ModelsPanel(Container):
             self._selected_model_id = model_id
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        """Handle config select changes."""
+        """Handle config select changes - updates config and memory estimate."""
         model_id = self._get_selected_model_id()
         if not model_id:
             return
-        
+
         config = self._store.get_model_config(model_id)
-        
+
         if event.select.id == "offload_select":
             config.gpu_offload_percent = event.value if event.value is not None else -1
         elif event.select.id == "context_select":
             config.context_length = event.value if event.value is not None else 8192
         elif event.select.id == "kv_quant_select":
             config.kv_cache_quantization = event.value if event.value is not None else "f16"
-        
+
         self._store.set_model_config(model_id, config)
-        
-        # Update memory estimate when config changes
+
+        # Always update memory estimate when any config changes
         self._update_memory_estimate(model_id)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses - CALCULATE updates memory estimate."""
+        if event.button.id == "calculate_btn":
+            model_id = self._get_selected_model_id()
+            if model_id:
+                self._update_memory_estimate(model_id)
+                self.app.notify("Memory estimate updated", severity="information")
+            else:
+                self.app.notify("No model selected", severity="warning")
 
     def key_l(self) -> None:
         """Handle 'l' key - load model."""
@@ -743,7 +753,11 @@ class ModelsPanel(Container):
         self.run_worker(self.action_unload_model())
 
     def key_enter(self) -> None:
-        """Handle Enter key - show details."""
+        """Handle Enter key - show details (only if Select not focused)."""
+        # Don't intercept Enter if a Select widget has focus
+        # (Select needs Enter to confirm dropdown selection)
+        if isinstance(self.focused, Select):
+            return
         self.action_show_details()
 
     def key_r(self) -> None:

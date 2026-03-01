@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **UAT Session 7:** Keyboard navigation and memory estimate responsiveness
+  - **Fix 1:** Keyboard navigation works in LOAD CONFIGURATION selects
+    - `key_enter` now checks if Select widget has focus before intercepting
+    - Allows Enter key to confirm dropdown selections in Select widgets
+    - Fixes keyboard-only navigation for accessibility
+  - **Fix 2:** Memory estimate updates for all config changes
+    - Added `on_button_pressed` handler for CALCULATE button
+    - Verified `on_select_changed` handles all three Select widgets:
+      - GPU Offload %, Context Length, KV Cache Quantization
+    - All config changes now trigger `_update_memory_estimate()`
+
 - **UAT Session 5:** Chat timeout, GPU headers, config layout, VRAM estimator
   - **Fix 1:** Chat timeout and error handling with GPU-based health monitoring
     - Added 30-second timeout for stalled streams (checks GPU activity)
