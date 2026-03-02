@@ -110,26 +110,52 @@ download_and_install() {
 
 install_app() {
     print_info "Installing to $INSTALL_DIR..."
-    
+
     # Remove old installation if exists
     if [ -d "$INSTALL_DIR" ]; then
         print_warning "Removing existing installation..."
         rm -rf "$INSTALL_DIR"
     fi
-    
+
     # Create installation directory
     mkdir -p "$INSTALL_DIR"
-    
+
     # Copy application files
     cp -r src "$INSTALL_DIR/"
     cp pyproject.toml "$INSTALL_DIR/"
     cp README.md "$INSTALL_DIR/"
     cp CHANGELOG.md "$INSTALL_DIR/"
-    
+
     # Create __init__.py for launcher module
     touch "$INSTALL_DIR/src/lmstudio_tui/__init__.py"
-    
-    print_success "Application installed"
+
+    print_success "Application files installed"
+}
+
+install_python_deps() {
+    print_info "Installing Python dependencies..."
+
+    # Try pip install in editable mode with break-system-packages for Ubuntu/Debian
+    if python3 -m pip install --break-system-packages -e "$INSTALL_DIR" 2>/dev/null; then
+        print_success "Python dependencies installed"
+    elif pip3 install --break-system-packages -e "$INSTALL_DIR" 2>/dev/null; then
+        print_success "Python dependencies installed"
+    else
+        print_error "Failed to install Python dependencies"
+        print_info "Manually run: pip3 install -e $INSTALL_DIR"
+        exit 1
+    fi
+}
+
+verify_installation() {
+    print_info "Verifying installation..."
+    if python3 -c "import lmstudio_tui" 2>/dev/null; then
+        print_success "Installation verified"
+    else
+        print_error "Installation verification failed - lmstudio_tui package not importable"
+        print_info "Check: pip3 install -e $INSTALL_DIR"
+        exit 1
+    fi
 }
 
 create_launcher() {
@@ -261,6 +287,8 @@ main() {
     
     # Install
     install_app
+    install_python_deps
+    verify_installation
     create_launcher
     setup_user_config
     create_uninstaller

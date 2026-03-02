@@ -17,7 +17,7 @@ from textual.widgets import Button, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
-from lmstudio_tui.widgets.models_panel import format_size, extract_quantization
+from lmstudio_tui.utils import format_size, extract_quantization
 
 logger = logging.getLogger(__name__)
 
@@ -169,22 +169,9 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 with Horizontal(classes="buttons"):
                     yield Button("Cancel", id="cancel-btn")
                     if self._model.loaded:
-                        yield Button(
-                            "Eject",
-                            id="unload-btn",
-                            variant="error"
-                        )
-                        yield Button(
-                            "Change Context",
-                            id="context-btn",
-                            variant="primary"
-                        )
+                        yield Button("Eject", id="unload-btn", variant="error")
                     else:
-                        yield Button(
-                            "Load",
-                            id="load-btn",
-                            variant="success"
-                        )
+                        yield Button("Load", id="load-btn", variant="success")
             else:
                 yield Static(f"Model '{self.model_id}' not found", classes="error")
                 with Horizontal(classes="buttons"):
@@ -217,15 +204,8 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             await self._load_model()
         elif button_id == "unload-btn":
             await self._unload_model()
-        elif button_id == "context-btn":
-            await self._change_context()
         elif button_id == "cancel-btn":
             self.dismiss(None)
-
-    async def _change_context(self) -> None:
-        """Change the model's context window size."""
-        # Placeholder - would open a dialog to adjust context
-        self.app.notify("Context change not yet implemented - use LM Studio desktop UI", severity="warning")
 
     async def _load_model(self) -> None:
         """Load the model with animated loading state."""

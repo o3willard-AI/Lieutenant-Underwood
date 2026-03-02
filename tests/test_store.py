@@ -276,8 +276,6 @@ class TestRootStoreAPIOperations:
 
     def teardown_method(self):
         """Clean up after each test."""
-        store = get_store()
-        store.disconnect_from_server()
         reset_store()
 
     def test_connect_to_server_with_defaults(self):
@@ -288,11 +286,11 @@ class TestRootStoreAPIOperations:
         result = store.connect_to_server()
         assert isinstance(result, bool)
 
-    def test_disconnect_when_not_connected(self):
+    async def test_disconnect_when_not_connected(self):
         """Disconnecting when not connected is safe."""
         store = get_store()
         # Should not raise
-        store.disconnect_from_server()
+        await store.disconnect_from_server()
         assert store.api_client is None
         assert store.server_connected.value is False
 

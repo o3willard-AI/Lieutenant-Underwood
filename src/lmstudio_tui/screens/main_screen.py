@@ -1,5 +1,7 @@
 """Main screen for LM Studio TUI."""
 
+import datetime
+
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
@@ -68,4 +70,4 @@ class MainScreen(Screen):
             id="main-content"
         )
         yield Footer()
-        yield Static(f"v{__version__} | 2026-02-26", id="version-footer")
+        yield Static(f"v{__version__} | {datetime.date.today().isoformat()}", id="version-footer")

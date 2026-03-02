@@ -17,7 +17,7 @@ class ServerConfig:
     """Server connection configuration."""
 
     host: str = "localhost"
-    port: int = 1235  # Local LM Studio port (external is 1234)
+    port: int = 1234
     timeout: float = 10.0
     retry: bool = True
     api_token_path: Optional[str] = None
@@ -51,11 +51,19 @@ class GPUConfig:
 
 
 @dataclass
+class ChatConfig:
+    """Chat interface configuration."""
+
+    system_prompt: str = "You are a helpful assistant."
+
+
+@dataclass
 class AppConfig:
     """Root configuration container."""
 
     server: ServerConfig = field(default_factory=ServerConfig)
     gpu: GPUConfig = field(default_factory=GPUConfig)
+    chat: ChatConfig = field(default_factory=ChatConfig)
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "AppConfig":
@@ -93,6 +101,10 @@ class AppConfig:
         # Server config (direct mapping)
         if "server" in raw_data:
             data["server"] = raw_data["server"]
+
+        # Chat config (direct mapping)
+        if "chat" in raw_data:
+            data["chat"] = raw_data["chat"]
 
         # GPU config with nested alert thresholds
         if "gpu" in raw_data or "alerts" in raw_data:
@@ -154,6 +166,9 @@ class AppConfig:
             "gpu": {
                 "monitoring_enabled": self.gpu.monitoring_enabled,
                 "update_frequency": self.gpu.update_frequency,
+            },
+            "chat": {
+                "system_prompt": self.chat.system_prompt,
             },
             "alerts": {
                 "temperature": {

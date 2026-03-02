@@ -256,6 +256,32 @@ class ChatPanel(Container):
         if model and not model.loaded:
             self._add_message("system", f"Model not loaded. Press 'l' in Models panel to load.")
 
+    async def _run_stream(
+        self,
+        client,
+        active_model: str,
+        conversation: list[dict],
+        assistant_index: int,
+    ) -> None:
+        """Execute the streaming chat completion loop.
+
+        Runs as a cancellable asyncio.Task so that _cancel_current_stream()
+        and _monitor_stream_health() can actually interrupt it.
+
+        Args:
+            client: LMStudioClient instance.
+            active_model: Model ID to query.
+            conversation: Message history to send.
+            assistant_index: Index into _chat_history to update in-place.
+        """
+        full_response = ""
+        async for chunk in client.chat_completion(active_model, conversation):
+            self._last_chunk_time = time.time()
+            full_response = (chunk if not full_response else full_response + chunk)
+            self._chat_history[assistant_index] = ("assistant", full_response)
+            self._update_history_display()
+        logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
+
     async def _handle_chat(self, message: str) -> None:
         """Handle regular chat message with streaming response.
 
@@ -294,13 +320,14 @@ class ChatPanel(Container):
                 return
 
             # Build conversation history from chat history
-            conversation = [
+            system_prompt = self._store.config.value.chat.system_prompt
+            conversation = [{"role": "system", "content": system_prompt}] + [
                 {"role": role, "content": content}
                 for role, content in self._chat_history
-                if role in ("user", "assistant")  # Only send actual chat messages
+                if role in ("user", "assistant")
             ]
 
-            # Add placeholder for assistant response (will be updated during stream)
+            # Add placeholder for assistant response (updated in-place during stream)
             self._chat_history.append(("assistant", "⏳ Thinking..."))
             assistant_index = len(self._chat_history) - 1
             self._update_history_display()
@@ -310,44 +337,28 @@ class ChatPanel(Container):
             self._last_chunk_time = time.time()
             self._monitor_task = asyncio.create_task(self._monitor_stream_health())
 
-            # Stream response from API
-            full_response = ""
+            # Wrap stream in a task so _cancel_current_stream() can cancel it
+            self._current_stream_task = asyncio.create_task(
+                self._run_stream(client, active_model, conversation, assistant_index)
+            )
             try:
-                async for chunk in client.chat_completion(active_model, conversation):
-                    # Reset timeout tracker on each chunk
-                    self._last_chunk_time = time.time()
-                    
-                    # Remove "Thinking..." placeholder on first chunk
-                    if full_response == "" and chunk:
-                        full_response = chunk
-                    else:
-                        full_response += chunk
-                    
-                    # Update in-place for reactive UI refresh
-                    self._chat_history[assistant_index] = ("assistant", full_response)
-                    self._update_history_display()
-
-                logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
-
+                await self._current_stream_task
             except asyncio.CancelledError:
-                # Stream was cancelled (timeout or user interruption)
                 logger.warning("Chat stream cancelled")
                 self._chat_history[assistant_index] = (
                     "error",
-                    "Response timed out or was cancelled. Try again with a shorter message."
+                    "Response timed out or was cancelled. Try again with a shorter message.",
                 )
                 self._update_history_display()
-                raise  # Re-raise to be caught by outer handler
 
         except asyncio.CancelledError:
-            # Handle cancellation gracefully - message already updated above
             pass
         except Exception as e:
             logger.error(f"Chat failed: {e}")
             self._add_message("error", f"Chat failed: {e}")
         finally:
-            # Clean up state
             self._is_generating = False
+            self._current_stream_task = None
             if self._monitor_task and not self._monitor_task.done():
                 self._monitor_task.cancel()
             self._monitor_task = None

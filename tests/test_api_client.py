@@ -31,21 +31,27 @@ def test_client_from_config():
 
 @pytest.mark.asyncio
 async def test_get_models_mocked():
-    """Test get_models with mocked HTTP response."""
+    """Test get_models with mocked HTTP response matching actual /api/v1/models shape."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "data": [
+        "models": [
             {
-                "id": "test-model-1",
-                "name": "Test Model 1",
-                "size": 1000000,
-                "loaded": True,
+                "key": "test-model-1",
+                "display_name": "Test Model 1",
+                "size_bytes": 1000000,
+                "quantization": {"name": "Q4_K_M"},
+                "max_context_length": 4096,
+                "loaded_instances": [
+                    {"id": "inst-abc", "config": {"context_length": 4096}}
+                ],
             },
             {
-                "id": "test-model-2",
-                "name": "Test Model 2",
-                "size": 2000000,
-                "loaded": False,
+                "key": "test-model-2",
+                "display_name": "Test Model 2",
+                "size_bytes": 2000000,
+                "quantization": {"name": "Q8_0"},
+                "max_context_length": 8192,
+                "loaded_instances": [],
             },
         ]
     }
@@ -64,17 +70,20 @@ async def test_get_models_mocked():
     assert models[0].name == "Test Model 1"
     assert models[0].size == 1000000
     assert models[0].loaded is True
+    assert models[0].instance_id == "inst-abc"
     assert models[1].id == "test-model-2"
     assert models[1].loaded is False
+    assert models[1].instance_id is None
 
-    mock_client.get.assert_called_once_with("/v1/models")
+    mock_client.get.assert_called_once_with("/api/v1/models")
 
 
 @pytest.mark.asyncio
 async def test_load_model_mocked():
-    """Test load_model with mocked HTTP response."""
+    """Test load_model posts to correct /api/v1/models/load endpoint."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
+    mock_response.status_code = 200
 
     mock_client = MagicMock()
     mock_client.post = AsyncMock(return_value=mock_response)
@@ -82,20 +91,22 @@ async def test_load_model_mocked():
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         client = LMStudioClient()
-        result = await client.load_model("my-model-id")
+        result = await client.load_model("my-model-id", context_length=8192)
 
     assert result is True
     mock_client.post.assert_called_once_with(
-        "/v1/models/load",
-        json={"model_id": "my-model-id"},
+        "/api/v1/models/load",
+        json={"model": "my-model-id", "context_length": 8192, "flash_attention": True},
+        timeout=120.0,
     )
 
 
 @pytest.mark.asyncio
-async def test_unload_model_mocked():
-    """Test unload_model with mocked HTTP response."""
+async def test_load_model_with_gpu_offload():
+    """Test load_model sends gpu_offload in payload when specified."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
+    mock_response.status_code = 200
 
     mock_client = MagicMock()
     mock_client.post = AsyncMock(return_value=mock_response)
@@ -103,18 +114,60 @@ async def test_unload_model_mocked():
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         client = LMStudioClient()
-        result = await client.unload_model("my-model-id")
+        result = await client.load_model("my-model-id", context_length=4096, gpu_offload=75)
+
+    assert result is True
+    call_kwargs = mock_client.post.call_args
+    payload = call_kwargs[1]["json"]
+    assert payload["gpu_offload"] == 75
+    assert payload["model"] == "my-model-id"
+
+
+@pytest.mark.asyncio
+async def test_load_model_max_offload():
+    """Test load_model sends gpu_offload='max' for negative values."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.status_code = 200
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        client = LMStudioClient()
+        await client.load_model("my-model-id", gpu_offload=-1)
+
+    payload = mock_client.post.call_args[1]["json"]
+    assert payload["gpu_offload"] == "max"
+
+
+@pytest.mark.asyncio
+async def test_unload_model_mocked():
+    """Test unload_model posts instance_id to /api/v1/models/unload."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = ""
+
+    mock_client = MagicMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.aclose = AsyncMock()
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        client = LMStudioClient()
+        result = await client.unload_model("instance-xyz-123")
 
     assert result is True
     mock_client.post.assert_called_once_with(
-        "/v1/models/unload",
-        json={"model_id": "my-model-id"},
+        "/api/v1/models/unload",
+        json={"instance_id": "instance-xyz-123"},
     )
 
 
 @pytest.mark.asyncio
 async def test_close():
-    """Test closing the client."""
+    """Test closing the client calls aclose."""
     mock_client = MagicMock()
     mock_client.aclose = AsyncMock()
 
@@ -127,7 +180,7 @@ async def test_close():
 
 @pytest.mark.asyncio
 async def test_get_models_http_error():
-    """Test get_models handles HTTP errors."""
+    """Test get_models raises on HTTP errors."""
     import httpx
 
     mock_client = MagicMock()
@@ -149,5 +202,5 @@ async def test_async_context_manager():
     with patch("httpx.AsyncClient", return_value=mock_client):
         async with LMStudioClient() as client:
             assert isinstance(client, LMStudioClient)
-        
+
         mock_client.aclose.assert_called_once()

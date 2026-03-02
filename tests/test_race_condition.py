@@ -133,20 +133,20 @@ class TestGPUMonitorRaceCondition:
             # Subsequent accesses return None (simulating race)
             return None
         
+        # Save the original property before replacing it
+        original_property = RootStore.__dict__["gpu_monitor"]
+
         # Replace gpu_monitor with a property that changes
         type(store).gpu_monitor = property(racing_getter)
-        
-        # OLD pattern (simulated) - would fail if race occurred
-        # We can't easily test the actual old code, but we document
-        # that the NEW pattern is safe
-        
-        # NEW pattern - always safe
-        monitor = store.gpu_monitor  # Gets the monitor
-        # Even if we accessed store.gpu_monitor again and got None,
-        # our local 'monitor' still holds the valid reference
-        
-        assert monitor is not None
-        assert monitor.get_metrics() == [{"gpu": "data"}]
-        
-        # Clean up
-        del type(store).gpu_monitor
+
+        try:
+            # NEW pattern - always safe
+            monitor = store.gpu_monitor  # Gets the monitor
+            # Even if store.gpu_monitor returned None on a second access,
+            # our local 'monitor' still holds the valid reference.
+
+            assert monitor is not None
+            assert monitor.get_metrics() == [{"gpu": "data"}]
+        finally:
+            # Restore the original property so other tests are not affected.
+            type(store).gpu_monitor = original_property

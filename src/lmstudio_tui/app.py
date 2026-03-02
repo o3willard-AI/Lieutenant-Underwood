@@ -5,6 +5,7 @@ import logging
 import logging.handlers
 import sys
 from pathlib import Path
+from typing import Optional
 
 from textual.app import App
 from textual.worker import get_current_worker
@@ -60,8 +61,13 @@ class LMStudioApp(App):
         ("u", "unload_model", "Unload Model"),
     ]
 
-    def __init__(self, *args, **kwargs):
-        """Initialize the application and store."""
+    def __init__(self, host: Optional[str] = None, port: Optional[int] = None, *args, **kwargs):
+        """Initialize the application and store.
+
+        Args:
+            host: Override the server host from config (used by launcher).
+            port: Override the server port from config (used by launcher).
+        """
         super().__init__(*args, **kwargs)
         self.store: RootStore = get_store()
         self._shutdown_event = asyncio.Event()
@@ -70,6 +76,11 @@ class LMStudioApp(App):
         self._models_max_backoff = 60.0
         # Load config from default location
         self.store.load_config()
+        # Apply CLI / launcher overrides after config load
+        if host is not None:
+            self.store.config.value.server.host = host
+        if port is not None:
+            self.store.config.value.server.port = port
 
     def on_mount(self) -> None:
         """App startup - initialize store and start background workers."""
@@ -155,7 +166,12 @@ class LMStudioApp(App):
 
             except Exception as e:
                 logger.error(f"Models worker error: {e}", exc_info=True)
-                self.store.models_error.value = str(e)
+                cfg = self.store.config.value.server
+                user_msg = (
+                    f"Cannot reach LM Studio at {cfg.host}:{cfg.port} — "
+                    f"retrying in {int(self._models_backoff_delay)}s"
+                )
+                self.store.models_error.value = user_msg
                 self.store.server_connected.value = False
                 self.store.last_error.value = f"API Error: {e}"
                 # Exponential backoff on error
@@ -224,9 +240,9 @@ class LMStudioApp(App):
     async def on_shutdown(self) -> None:
         """App shutdown - signal all workers to exit gracefully."""
         self._shutdown_event.set()
-        await asyncio.sleep(0.1)  # Wait for workers to exit
+        await asyncio.sleep(0.1)  # Give workers a chance to observe the event
         self.store.stop_gpu_monitoring()
-        self.store.disconnect_from_server()
+        await self.store.disconnect_from_server()
 
 
 def main():

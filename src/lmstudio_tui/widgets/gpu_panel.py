@@ -155,134 +155,6 @@ class TempDisplay(Static):
             self.add_class("red")
 
 
-class GPUCard(Container):
-    """Single GPU display card.
-    
-    Shows: GPU name, utilization percentage, VRAM usage bar,
-    temperature, and power draw.
-    """
-
-    DEFAULT_CSS = """
-    GPUCard {
-        layout: horizontal;
-        height: auto;
-        padding: 1;
-        border: solid $primary;
-    }
-    GPUCard Static.name {
-        width: 25;
-        content-align: left middle;
-    }
-    GPUCard Static.utilization {
-        width: 8;
-        content-align: center middle;
-    }
-    GPUCard VRAMBar {
-        width: 20;
-    }
-    GPUCard Static.vram-text {
-        width: 15;
-        content-align: left middle;
-    }
-    GPUCard TempDisplay {
-        width: 8;
-    }
-    GPUCard Static.power {
-        width: 12;
-        content-align: right middle;
-    }
-    """
-
-    def __init__(self, metrics: GPUMetrics, **kwargs):
-        """Initialize GPU card with metrics.
-        
-        Args:
-            metrics: GPUMetrics dataclass with GPU data.
-            **kwargs: Additional arguments passed to Container.
-        """
-        super().__init__(**kwargs)
-        self._metrics = metrics
-        # Widget references (populated in compose)
-        self._name_widget: Static | None = None
-        self._util_widget: Static | None = None
-        self._vram_text_widget: Static | None = None
-        self._power_widget: Static | None = None
-        self._vram_bar: VRAMBar | None = None
-        self._temp_display: TempDisplay | None = None
-
-    def compose(self):
-        """Compose the GPU card widgets."""
-        # GPU Name
-        self._name_widget = Static(
-            self._metrics.name,
-            classes="name"
-        )
-        yield self._name_widget
-        
-        # Utilization percentage
-        self._util_widget = Static(
-            f"{self._metrics.utilization}%",
-            classes="utilization"
-        )
-        yield self._util_widget
-        
-        # VRAM bar
-        self._vram_bar = VRAMBar(
-            vram_used=self._metrics.vram_used,
-            vram_total=self._metrics.vram_total
-        )
-        yield self._vram_bar
-        
-        # VRAM text (e.g., "4.0/8.0 GB")
-        vram_used_gb = self._metrics.vram_used / 1024
-        vram_total_gb = self._metrics.vram_total / 1024
-        self._vram_text_widget = Static(
-            f"{vram_used_gb:.1f}/{vram_total_gb:.1f} GB",
-            classes="vram-text"
-        )
-        yield self._vram_text_widget
-        
-        # Temperature display
-        self._temp_display = TempDisplay(
-            temperature=self._metrics.temperature
-        )
-        yield self._temp_display
-        
-        # Power draw
-        self._power_widget = Static(
-            f"{self._metrics.power_draw:.1f}W",
-            classes="power"
-        )
-        yield self._power_widget
-
-    def update_metrics(self, metrics: GPUMetrics) -> None:
-        """Update card with new metrics.
-        
-        Args:
-            metrics: Updated GPUMetrics dataclass.
-        """
-        self._metrics = metrics
-        
-        # Update using stored widget references (safe, not brittle)
-        if self._name_widget:
-            self._name_widget.update(self._metrics.name)
-        if self._util_widget:
-            self._util_widget.update(f"{self._metrics.utilization}%")
-        if self._vram_text_widget:
-            vram_used_gb = self._metrics.vram_used / 1024
-            vram_total_gb = self._metrics.vram_total / 1024
-            self._vram_text_widget.update(f"{vram_used_gb:.1f}/{vram_total_gb:.1f} GB")
-        if self._power_widget:
-            self._power_widget.update(f"{self._metrics.power_draw:.1f}W")
-        
-        # Update VRAM bar
-        if self._vram_bar:
-            self._vram_bar._update_vram(self._metrics.vram_used)
-        
-        # Update temperature
-        if self._temp_display:
-            self._temp_display.update_temperature(self._metrics.temperature)
-
 
 class GPUPanel(Container):
     """Container with reactive binding to store.
@@ -399,8 +271,18 @@ class GPUPanel(Container):
         """
         self._gpu_error = new
 
+    def _restore_data_table(self) -> None:
+        """Re-create the DataTable after _show_error() removed it."""
+        self.remove_children()
+        self._data_table = DataTable(show_header=True, header_height=1)
+        self.mount(Static("🎮 GPU STATUS", classes="title"))
+        self.mount(self._data_table)
+        self._setup_data_table()
+
     def watch__gpu_metrics(self, metrics: list[GPUMetrics]) -> None:
-        """React to metrics change - update DataTable."""
+        """React to metrics change - restore table if needed, then update."""
+        if self._data_table is None:
+            self._restore_data_table()
         self._update_data_table(metrics)
 
     def watch__gpu_error(self, error: str | None) -> None:

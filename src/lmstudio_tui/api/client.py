@@ -35,6 +35,7 @@ class LMStudioClient:
         host: str = "localhost",
         port: int = 1234,
         timeout: Optional[float] = None,
+        token: Optional[str] = None,
     ):
         """Initialize the client.
 
@@ -42,17 +43,25 @@ class LMStudioClient:
             host: Hostname or IP of the LM Studio server.
             port: Port number for the API.
             timeout: Request timeout in seconds (default: 10.0).
+            token: Bearer token for API authentication (optional).
         """
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout if timeout is not None else 10.0
+        headers: dict[str, str] = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
+            headers=headers,
         )
 
     @classmethod
     def from_config(cls, config: ServerConfig) -> "LMStudioClient":
         """Create client from server configuration.
+
+        Reads the API token from disk if ``config.resolved_api_token_path``
+        exists and contains a non-empty string.
 
         Args:
             config: ServerConfig instance with connection details.
@@ -60,10 +69,19 @@ class LMStudioClient:
         Returns:
             Configured LMStudioClient instance.
         """
+        token: Optional[str] = None
+        token_path = config.resolved_api_token_path
+        if token_path and token_path.exists():
+            try:
+                token = token_path.read_text().strip() or None
+            except OSError as e:
+                logger.warning(f"Could not read API token from {token_path}: {e}")
+
         return cls(
             host=config.host,
             port=config.port,
             timeout=config.timeout,
+            token=token,
         )
 
     async def get_models(self) -> list[ModelInfo]:

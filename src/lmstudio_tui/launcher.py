@@ -70,11 +70,11 @@ def print_warning(msg: str) -> None:
 
 
 def check_python_version() -> bool:
-    """Check if Python version is 3.10 or higher."""
+    """Check if Python version is 3.9 or higher."""
     version = sys.version_info
-    if version.major < 3 or (version.major == 3 and version.minor < 10):
-        print_error(f"Python {version.major}.{version.minor} is installed, but 3.10+ is required")
-        print_info("Please install Python 3.10 or higher")
+    if version.major < 3 or (version.major == 3 and version.minor < 9):
+        print_error(f"Python {version.major}.{version.minor} is installed, but 3.9+ is required")
+        print_info("Please install Python 3.9 or higher")
         return False
     return True
 
@@ -220,8 +220,10 @@ def prompt_start_lm_studio() -> tuple[bool, Optional[int]]:
 def load_config() -> dict:
     """Load user configuration."""
     config = DEFAULT_CONFIG.copy()
-    
+
+    # Check the canonical TUI config path first, then legacy paths.
     config_paths = [
+        Path.home() / ".config" / "lmstudio-tui" / "config.toml",
         Path.home() / ".config" / "lmstui" / "config.toml",
         Path.home() / ".lmstui" / "config.toml",
     ]
@@ -245,7 +247,7 @@ def load_config() -> dict:
 
 def save_default_config() -> None:
     """Create default configuration file."""
-    config_dir = Path.home() / ".config" / "lmstui"
+    config_dir = Path.home() / ".config" / "lmstudio-tui"
     config_file = config_dir / "config.toml"
     
     if config_file.exists():
@@ -275,22 +277,23 @@ level = "INFO"
 
 
 def launch_tui(host: str, port: int, args: argparse.Namespace) -> int:
-    """Launch the TUI application."""
+    """Launch the TUI application.
+
+    Passes the detected host and port directly into LMStudioApp so the
+    launcher's server discovery is actually used by the TUI.
+    """
     try:
         from lmstudio_tui.app import LMStudioApp
     except ImportError:
         print_error("Could not import LMStudioApp")
         print_info("Make sure Lieutenant-Underwood is properly installed")
         return 1
-    
-    os.environ["LMSTUDIO_HOST"] = host
-    os.environ["LMSTUDIO_PORT"] = str(port)
-    
+
     if args.debug:
         os.environ["LMSTUDIO_DEBUG"] = "1"
-    
+
     try:
-        app = LMStudioApp()
+        app = LMStudioApp(host=host, port=port)
         app.run()
         return 0
     except Exception as e:

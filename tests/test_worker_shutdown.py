@@ -2,7 +2,7 @@
 
 import asyncio
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from lmstudio_tui.app import LMStudioApp
 
@@ -106,7 +106,7 @@ async def test_on_shutdown_sets_event():
     
     # Mock store methods to avoid actual cleanup
     with patch.object(app.store, 'stop_gpu_monitoring') as mock_stop_gpu, \
-         patch.object(app.store, 'disconnect_from_server') as mock_disconnect:
+         patch.object(app.store, 'disconnect_from_server', new_callable=AsyncMock) as mock_disconnect:
         
         assert not app._shutdown_event.is_set()
         
@@ -123,21 +123,15 @@ async def test_on_shutdown_sets_event():
 @pytest.mark.asyncio
 async def test_worker_loop_condition_uses_shutdown_event():
     """Test that workers use while not shutdown_event.is_set() pattern."""
+    import inspect
+
     app = LMStudioApp()
-    
-    # Verify the shutdown event exists
+
     assert hasattr(app, '_shutdown_event')
     assert isinstance(app._shutdown_event, asyncio.Event)
-    
-    # The workers are defined with the correct loop condition
-    # This is verified by reading the source code
-    import inspect
-    
+
     source = inspect.getsource(app._gpu_update_worker)
     assert 'while not self._shutdown_event.is_set()' in source
-    
+
     source = inspect.getsource(app._models_update_worker)
-    assert 'while not self._shutdown_event.is_set()' in source
-    
-    source = inspect.getsource(app._connection_check_worker)
     assert 'while not self._shutdown_event.is_set()' in source

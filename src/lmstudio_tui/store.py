@@ -384,23 +384,14 @@ class RootStore:
             self.last_error.value = f"Connection Error: {e}"
             return False
 
-    def disconnect_from_server(self) -> None:
+    async def disconnect_from_server(self) -> None:
         """Disconnect from LM Studio server and cleanup resources.
 
         Safe to call even if not connected.
         """
         if self._api_client is not None:
-            # Note: We can't await close() synchronously, so schedule it for cleanup
-            # The API client will be garbage collected eventually
-            import asyncio
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # Schedule async close
-                    loop.create_task(self._api_client.close())
-                else:
-                    # Run close synchronously if loop not running
-                    asyncio.run(self._api_client.close())
+                await self._api_client.close()
             except Exception as e:
                 logger.warning(f"Error during client disconnect: {e}")
             finally:

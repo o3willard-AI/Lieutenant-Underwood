@@ -19,6 +19,7 @@ from textual.widgets import DataTable, Static, Input, Select, Button
 
 from lmstudio_tui.api.client import LMStudioClient, ModelInfo
 from lmstudio_tui.store import get_store, ModelLoadConfig
+from lmstudio_tui.utils import format_size, extract_quantization
 
 logger = logging.getLogger(__name__)
 
@@ -51,34 +52,6 @@ KV_QUANT_OPTIONS = [
     ("Q4_0 - Smallest", "q4_0"),
 ]
 
-
-def format_size(size_bytes: int) -> str:
-    """Format size in bytes to human-readable string."""
-    if size_bytes >= 1024 ** 3:
-        return f"{size_bytes / (1024 ** 3):.1f} GB"
-    elif size_bytes >= 1024 ** 2:
-        return f"{size_bytes / (1024 ** 2):.1f} MB"
-    elif size_bytes >= 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    else:
-        return f"{size_bytes} B"
-
-
-def extract_quantization(model_name: str) -> str:
-    """Extract quantization from model name."""
-    import re
-    patterns = [
-        r'-(Q\d+_[KMS]_[ML]?)',
-        r'-(Q\d+_[KMS])',
-        r'-(Q\d+[A-Z]?)',
-        r'-(FP16)',
-        r'-(FP32)',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, model_name, re.IGNORECASE)
-        if match:
-            return match.group(1).upper()
-    return "-"
 
 
 class ModelsPanel(Container):
