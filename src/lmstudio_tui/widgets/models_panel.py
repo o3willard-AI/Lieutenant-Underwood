@@ -207,9 +207,9 @@ class ModelsPanel(Container):
         yield Static("⚙️  LOAD CONFIGURATION", classes="config-title")
         self._config_container = Container()
         with self._config_container:
-            # GPU Offload
-            yield Static("GPU Offload", classes="config-label")
-            yield Static("Percentage of layers on GPU", classes="config-desc")
+            # GPU Offload (used for memory estimate only; LM Studio manages offload automatically)
+            yield Static("GPU Offload (estimate only)", classes="config-label")
+            yield Static("For memory estimate — LM Studio auto-manages offload", classes="config-desc")
             self._offload_select = Select(
                 OFFLOAD_OPTIONS,
                 value=-1,
@@ -589,7 +589,6 @@ class ModelsPanel(Container):
             result = await client.load_model(
                 model_id,
                 context_length=context_length,
-                gpu_offload=config.gpu_offload_percent if config.gpu_offload_percent >= 0 else None
             )
 
             # Check if actually loaded by refreshing

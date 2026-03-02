@@ -101,46 +101,6 @@ async def test_load_model_mocked():
     )
 
 
-@pytest.mark.asyncio
-async def test_load_model_with_gpu_offload():
-    """Test load_model sends gpu_offload in payload when specified."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.status_code = 200
-
-    mock_client = MagicMock()
-    mock_client.post = AsyncMock(return_value=mock_response)
-    mock_client.aclose = AsyncMock()
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        client = LMStudioClient()
-        result = await client.load_model("my-model-id", context_length=4096, gpu_offload=75)
-
-    assert result is True
-    call_kwargs = mock_client.post.call_args
-    payload = call_kwargs[1]["json"]
-    assert payload["gpu_offload"] == 75
-    assert payload["model"] == "my-model-id"
-
-
-@pytest.mark.asyncio
-async def test_load_model_max_offload():
-    """Test load_model sends gpu_offload='max' for negative values."""
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.status_code = 200
-
-    mock_client = MagicMock()
-    mock_client.post = AsyncMock(return_value=mock_response)
-    mock_client.aclose = AsyncMock()
-
-    with patch("httpx.AsyncClient", return_value=mock_client):
-        client = LMStudioClient()
-        await client.load_model("my-model-id", gpu_offload=-1)
-
-    payload = mock_client.post.call_args[1]["json"]
-    assert payload["gpu_offload"] == "max"
-
 
 @pytest.mark.asyncio
 async def test_unload_model_mocked():
