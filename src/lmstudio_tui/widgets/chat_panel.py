@@ -13,7 +13,6 @@ import time
 from typing import Optional
 
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.reactive import reactive
 from textual.widgets import Input, Static, Button
 
 from lmstudio_tui.store import get_store
@@ -80,9 +79,6 @@ class ChatPanel(Container):
     }
     """
 
-    _chat_history: reactive[list[tuple[str, str]]] = reactive(list)  # (role, message)
-    _is_generating: reactive[bool] = reactive(False)
-    _last_chunk_time: reactive[float] = reactive(0.0)
     _stream_timeout_seconds: float = 30.0  # Timeout after 30 seconds of no chunks
 
     def __init__(self, **kwargs):
@@ -94,6 +90,11 @@ class ChatPanel(Container):
         self._input_widget: Optional[Input] = None
         self._current_stream_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
+        # Plain Python attributes — NOT Textual reactives; setting them from
+        # asyncio tasks must not trigger Textual's reactive/repaint machinery.
+        self._chat_history: list[tuple[str, str]] = []
+        self._is_generating: bool = False
+        self._last_chunk_time: float = 0.0
 
     def compose(self):
         """Compose the chat panel widgets."""
@@ -141,22 +142,25 @@ class ChatPanel(Container):
         """Update the history widget with current messages."""
         if not self._history_content:
             return
-        
-        lines = []
-        for role, message in self._chat_history[-50:]:  # Show last 50
-            prefix = {
-                "user": "You: ",
-                "assistant": "Model: ",
-                "system": "ℹ️  ",
-                "error": "❌ ",
-            }.get(role, "")
-            lines.append(f"{prefix}{message}")
-        
-        self._history_content.update("\n".join(lines) if lines else "No messages yet.")
-        
-        # Auto-scroll to bottom
-        if self._history_widget:
-            self._history_widget.scroll_end(animate=False)
+
+        try:
+            lines = []
+            for role, message in self._chat_history[-50:]:  # Show last 50
+                prefix = {
+                    "user": "You: ",
+                    "assistant": "Model: ",
+                    "system": "ℹ️  ",
+                    "error": "❌ ",
+                }.get(role, "")
+                lines.append(f"{prefix}{message}")
+
+            self._history_content.update("\n".join(lines) if lines else "No messages yet.")
+
+            # Auto-scroll to bottom
+            if self._history_widget:
+                self._history_widget.scroll_end(animate=False)
+        except Exception as e:
+            logger.error(f"Error rendering chat history: {e}")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission.
@@ -277,10 +281,14 @@ class ChatPanel(Container):
         full_response = ""
         async for chunk in client.chat_completion(active_model, conversation):
             self._last_chunk_time = time.time()
-            full_response = (chunk if not full_response else full_response + chunk)
-            self._chat_history[assistant_index] = ("assistant", full_response)
-            self._update_history_display()
-        logger.info(f"Chat response from {active_model}: {full_response[:100]}...")
+            full_response = full_response + chunk
+            try:
+                if 0 <= assistant_index < len(self._chat_history):
+                    self._chat_history[assistant_index] = ("assistant", full_response)
+                self._update_history_display()
+            except Exception as e:
+                logger.error(f"Error updating chat display during stream: {e}")
+        logger.info(f"Chat response complete, length={len(full_response)}")
 
     async def _handle_chat(self, message: str) -> None:
         """Handle regular chat message with streaming response.

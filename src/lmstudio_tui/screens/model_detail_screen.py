@@ -56,11 +56,11 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         margin-bottom: 1;
     }
     ModelDetailScreen Static.label {
-        color: $text-secondary;
+        color: $text-muted;
         width: 12;
     }
     ModelDetailScreen Static.value {
-        color: $text-primary;
+        color: $text;
         width: 1fr;
     }
     ModelDetailScreen Static.status-loaded {
@@ -367,8 +367,17 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
     def on_mount(self) -> None:
-        """Set a flag to ignore the first enter key press."""
+        """Disable buttons for one render cycle to prevent Enter from parent auto-firing Cancel."""
         self._ignore_enter = True
+        for btn in self.query(Button):
+            btn.disabled = True
+        self.call_after_refresh(self._enable_buttons_after_mount)
+
+    def _enable_buttons_after_mount(self) -> None:
+        """Re-enable buttons after the first render cycle."""
+        if not self._loading:
+            for btn in self.query(Button):
+                btn.disabled = False
 
     def key_enter(self) -> None:
         """Handle Enter key - ignore first press to prevent auto-fire."""

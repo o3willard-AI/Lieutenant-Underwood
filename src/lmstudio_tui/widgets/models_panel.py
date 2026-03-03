@@ -417,18 +417,17 @@ class ModelsPanel(Container):
         # Model weights memory (in GB)
         model_weights_gb = model.size / (1024 ** 3)
         
-        # KV cache bytes per token based on quantization
-        kv_bytes_per_token = {
-            "f16": 2.0,
-            "q8_0": 1.0,
-            "q4_0": 0.5,
-        }.get(kv_cache_quantization, 2.0)
-        
-        # Approximate KV cache size calculation
-        # Based on llama.cpp behavior: scales with model size and context length
-        # Typical formula: ~2 bytes per token per 1B params for F16
-        model_size_factor = max(1.0, model_weights_gb / 4.0)  # Scale with model size
-        kv_cache_gb = (2 * context_length * kv_bytes_per_token * model_size_factor) / (1024 ** 3)
+        # KV cache KB per token for the whole model (empirically derived)
+        # ~100 KB/token for a 4 GB reference model at float16; scales linearly
+        kv_kb_per_token = {
+            "f16": 100.0,
+            "q8_0": 50.0,
+            "q4_0": 25.0,
+        }.get(kv_cache_quantization, 100.0)
+
+        # Scale KV cost with model size relative to 4 GB reference
+        model_size_factor = max(1.0, model_weights_gb / 4.0)
+        kv_cache_gb = (context_length * kv_kb_per_token * model_size_factor) / (1024 ** 2)
         
         # Total working memory with overhead
         overhead_gb = 0.5  # Additional overhead for activations, etc.
@@ -507,11 +506,11 @@ class ModelsPanel(Container):
         loading_id = self._store.model_loading.value
         
         for model in models:
-            # Show loading state if this model is being loaded
-            if model.id == loading_id:
-                status = "⏳ Loading..."
-            elif model.loaded:
+            # Loaded takes priority — show Loaded even if loading_id matches
+            if model.loaded:
                 status = "● Loaded"
+            elif model.id == loading_id:
+                status = "⏳ Loading..."
             else:
                 status = "○ Standby"
             
