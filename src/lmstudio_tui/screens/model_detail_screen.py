@@ -7,6 +7,7 @@ and presses Enter.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -17,20 +18,14 @@ from textual.widgets import Button, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
-from lmstudio_tui.utils import format_size, extract_quantization
+from lmstudio_tui.utils import extract_quantization
 
 logger = logging.getLogger(__name__)
 
 
 class ModelDetailScreen(ModalScreen[Optional[str]]):
     """Modal screen showing model details with Load/Unload controls.
-    
-    This screen displays:
-    - Model name and ID
-    - Size and quantization info
-    - Current load status
-    - Load/Unload buttons
-    
+
     Returns:
         Action taken: "loaded", "unloaded", or None if cancelled.
     """
@@ -43,7 +38,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     ModelDetailScreen > Container {
         width: 80;
         height: auto;
-        max-height: 20;
+        max-height: 22;
         background: $surface;
         border: solid $primary;
         padding: 1 2;
@@ -80,6 +75,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         color: $primary;
         text-style: bold;
         content-align: center middle;
+        height: 1;
         margin-top: 1;
     }
     ModelDetailScreen Horizontal.info-row {
@@ -94,60 +90,51 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     ModelDetailScreen Button {
         margin: 0 1;
     }
-    ModelDetailScreen Button.success {
-        background: $success;
-        color: $text-primary;
-    }
-    ModelDetailScreen Button.error {
-        background: $error;
-        color: $text-primary;
-    }
     """
 
     def __init__(self, model_id: str, **kwargs):
-        """Initialize the model detail screen.
-        
-        Args:
-            model_id: ID of the model to display.
-            **kwargs: Additional arguments passed to ModalScreen.
-        """
+        """Initialize the model detail screen."""
         super().__init__(**kwargs)
         self.model_id = model_id
         self._store = get_store()
         self._model: Optional[ModelInfo] = None
-        self._error: Optional[str] = None
-        self._ignore_enter = True  # Ignore first Enter key to prevent auto-fire
-        self._loading = False  # Loading state for load/unload operations
-        self._loading_dots = 0  # Counter for animated dots
-        self._loading_task = None  # Timer task for animation
+        self._ignore_enter = True
+        self._loading = False
+        self._loading_dots = 0
+        self._loading_task = None   # Textual interval Timer
+        self._loading_widget: Optional[Static] = None   # pre-composed; set in on_mount
+        self._error_widget: Optional[Static] = None     # pre-composed; set in on_mount
+
+    # ------------------------------------------------------------------
+    # Compose / mount
+    # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
         with Container():
             yield Static("🤖 Model Details", classes="title")
-            
-            # Get model info
+
             self._model = self._get_model()
-            
+
             if self._model:
-                # Model name/ID
                 with Horizontal(classes="info-row"):
                     yield Static("Name:", classes="label")
                     yield Static(self._model.name or self._model.id, classes="value")
-                
-                # Model ID (if different from name)
+
                 if self._model.name and self._model.name != self._model.id:
                     with Horizontal(classes="info-row"):
                         yield Static("ID:", classes="label")
                         yield Static(self._model.id, classes="value")
-                
-                # Quantization
-                quant = self._model.quantization if self._model.quantization != "-" else extract_quantization(self._model.id)
+
+                quant = (
+                    self._model.quantization
+                    if self._model.quantization != "-"
+                    else extract_quantization(self._model.id)
+                )
                 with Horizontal(classes="info-row"):
                     yield Static("Quant:", classes="label")
                     yield Static(quant, classes="value")
-                
-                # Context Length
+
                 if self._model.loaded and self._model.loaded_context_length > 0:
                     context_text = f"{self._model.loaded_context_length:,} / {self._model.max_context_length:,}"
                 elif self._model.max_context_length > 0:
@@ -157,15 +144,17 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 with Horizontal(classes="info-row"):
                     yield Static("Context:", classes="label")
                     yield Static(context_text, classes="value")
-                
-                # Status
+
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"
                 with Horizontal(classes="info-row"):
                     yield Static("Status:", classes="label")
                     yield Static(status_text, classes=f"value {status_class}")
-                
-                # Buttons - Cancel first to prevent accidental action
+
+                # Loading indicator and error — hidden until needed
+                yield Static("", classes="loading", id="loading-indicator")
+                yield Static("", classes="error", id="error-indicator")
+
                 with Horizontal(classes="buttons"):
                     yield Button("Cancel", id="cancel-btn")
                     if self._model.loaded:
@@ -176,198 +165,23 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 yield Static(f"Model '{self.model_id}' not found", classes="error")
                 with Horizontal(classes="buttons"):
                     yield Button("Close", id="cancel-btn")
-            
-            # Error message (conditional)
-            if self._error:
-                yield Static(self._error, classes="error")
-
-    def _get_model(self) -> Optional[ModelInfo]:
-        """Get model info from store.
-        
-        Returns:
-            ModelInfo if found, None otherwise.
-        """
-        for model in self._store.models.value:
-            if model.id == self.model_id:
-                return model
-        return None
-
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses.
-        
-        Args:
-            event: Button press event.
-        """
-        button_id = event.button.id
-        
-        if button_id == "load-btn":
-            await self._load_model()
-        elif button_id == "unload-btn":
-            await self._unload_model()
-        elif button_id == "cancel-btn":
-            self.dismiss(None)
-
-    async def _load_model(self) -> None:
-        """Load the model with animated loading state."""
-        if not self._model:
-            return
-        
-        if self._model.loaded:
-            self._error = "Model is already loaded"
-            self._update_error_display()
-            return
-        
-        if self._loading:
-            return  # Prevent duplicate requests
-        
-        self._loading = True
-        self._loading_dots = 0
-        self._update_loading_display()
-        self._disable_buttons()
-        
-        # Start animated dots timer
-        self._loading_task = self.set_interval(0.5, self._animate_loading_dots)
-        
-        try:
-            client = self._store.api_client
-            if not client:
-                self._error = "Not connected to server"
-                self._update_error_display()
-                self._stop_loading()
-                return
-            
-            await client.load_model(self.model_id)
-            
-            # Refresh models list
-            models = await client.get_models()
-            self._store.models.value = models
-            
-            self._stop_loading()
-            self.dismiss("loaded")
-            self.app.notify(f"Model '{self.model_id}' loaded successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to load model {self.model_id}: {e}")
-            self._error = f"Failed to load: {e}"
-            self._update_error_display()
-            self._stop_loading()
-
-    async def _unload_model(self) -> None:
-        """Unload the model with animated loading state."""
-        if not self._model:
-            return
-        
-        if not self._model.loaded:
-            self._error = "Model is not loaded"
-            self._update_error_display()
-            return
-        
-        if not self._model.instance_id:
-            self._error = "No instance ID available"
-            self._update_error_display()
-            return
-        
-        if self._loading:
-            return  # Prevent duplicate requests
-        
-        self._loading = True
-        self._loading_dots = 0
-        self._update_loading_display()
-        self._disable_buttons()
-        
-        # Start animated dots timer
-        self._loading_task = self.set_interval(0.5, self._animate_loading_dots)
-        
-        try:
-            client = self._store.api_client
-            if not client:
-                self._error = "Not connected to server"
-                self._update_error_display()
-                self._stop_loading()
-                return
-            
-            await client.unload_model(self._model.instance_id)
-            
-            # Clear active model if it was this one
-            if self._store.active_model.value == self.model_id:
-                self._store.active_model.value = None
-            
-            # Refresh models list
-            models = await client.get_models()
-            self._store.models.value = models
-            
-            self._stop_loading()
-            self.dismiss("unloaded")
-            self.app.notify(f"Model '{self.model_id}' unloaded successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to unload model {self.model_id}: {e}")
-            self._error = f"Failed to unload: {e}"
-            self._update_error_display()
-            self._stop_loading()
-
-    def _animate_loading_dots(self) -> None:
-        """Animate the loading dots (runs every 0.5 seconds)."""
-        self._loading_dots = (self._loading_dots + 1) % 4  # 0, 1, 2, 3, 0...
-        self._update_loading_display()
-
-    def _update_loading_display(self) -> None:
-        """Update the loading text with animated dots."""
-        # Remove existing loading indicator
-        for child in self.query("Static.loading"):
-            child.remove()
-        
-        if self._loading:
-            # Add animated loading text
-            dots = "." * self._loading_dots
-            container = self.query_one(Container)
-            loading_text = f"⏳ Loading{dots}"
-            loading_static = Static(loading_text, classes="loading")
-            # Insert before buttons
-            buttons = self.query_one("Horizontal.buttons")
-            buttons.mount(loading_static, before=0)
-
-    def _disable_buttons(self) -> None:
-        """Disable all buttons during loading."""
-        for button in self.query(Button):
-            button.disabled = True
-
-    def _stop_loading(self) -> None:
-        """Stop the loading animation and re-enable buttons."""
-        self._loading = False
-        
-        # Stop the animation timer
-        if self._loading_task:
-            self._loading_task.stop()
-            self._loading_task = None
-        
-        # Remove loading indicator
-        for child in self.query("Static.loading"):
-            child.remove()
-        
-        # Re-enable buttons
-        for button in self.query(Button):
-            button.disabled = False
-
-    def _update_error_display(self) -> None:
-        """Update the error display."""
-        # Remove existing error
-        for child in self.query("Static.error"):
-            child.remove()
-        
-        # Add new error if present
-        if self._error:
-            # Find the container and add error before buttons
-            container = self.query_one(Container)
-            error_static = Static(self._error, classes="error")
-            container.mount(error_static)
-
-    def key_escape(self) -> None:
-        """Handle Escape key - close modal."""
-        self.dismiss(None)
 
     def on_mount(self) -> None:
-        """Disable buttons for one render cycle to prevent Enter from parent auto-firing Cancel."""
+        """Wire up pre-composed dynamic widgets and protect against Enter auto-fire."""
+        try:
+            self._loading_widget = self.query_one("#loading-indicator", Static)
+            self._loading_widget.display = False
+        except Exception:
+            self._loading_widget = None
+
+        try:
+            self._error_widget = self.query_one("#error-indicator", Static)
+            self._error_widget.display = False
+        except Exception:
+            self._error_widget = None
+
+        # Disable buttons for one render cycle so the Enter key that opened
+        # this modal does not immediately fire Cancel.
         self._ignore_enter = True
         for btn in self.query(Button):
             btn.disabled = True
@@ -379,19 +193,161 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             for btn in self.query(Button):
                 btn.disabled = False
 
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses — load/unload run in a worker to avoid blocking the UI."""
+        button_id = event.button.id
+
+        if button_id == "load-btn":
+            # run_worker prevents the event loop from blocking during the HTTP call.
+            # If the user dismisses the modal while loading, Textual cancels the worker.
+            self.run_worker(self._load_model(), exclusive=True)
+        elif button_id == "unload-btn":
+            self.run_worker(self._unload_model(), exclusive=True)
+        elif button_id == "cancel-btn":
+            self.dismiss(None)
+
+    def key_escape(self) -> None:
+        """Handle Escape key - close modal."""
+        self.dismiss(None)
+
     def key_enter(self) -> None:
-        """Handle Enter key - ignore first press to prevent auto-fire."""
+        """Ignore first Enter press (came from the parent screen that opened us)."""
         if self._ignore_enter:
             self._ignore_enter = False
             return
-        # Let focused button handle Enter
 
     def key_tab(self) -> None:
-        """Handle Tab key - move focus to next button."""
+        """Move focus to next focusable widget."""
         self.screen.focus_next()
-        self._ignore_enter = False  # User has interacted, stop ignoring
+        self._ignore_enter = False
 
     def key_shift_tab(self) -> None:
-        """Handle Shift+Tab - move focus to previous button."""
+        """Move focus to previous focusable widget."""
         self.screen.focus_previous()
-        self._ignore_enter = False  # User has interacted, stop ignoring
+        self._ignore_enter = False
+
+    # ------------------------------------------------------------------
+    # Load / unload workers
+    # ------------------------------------------------------------------
+
+    async def _load_model(self) -> None:
+        """Load model — runs in a Textual worker (non-blocking)."""
+        if not self._model or self._model.loaded or self._loading:
+            return
+
+        self._start_loading()
+        try:
+            client = self._store.api_client
+            if not client:
+                self._show_error("Not connected to server")
+                return
+
+            await client.load_model(self.model_id)
+
+            models = await client.get_models()
+            self._store.models.value = models
+
+            self._stop_loading()
+            self.dismiss("loaded")
+            self.app.notify(f"Model '{self.model_id}' loaded successfully")
+
+        except asyncio.CancelledError:
+            # User dismissed the modal while loading — that's fine.
+            logger.info(f"Load of {self.model_id} cancelled")
+        except Exception as e:
+            logger.error(f"Failed to load model {self.model_id}: {e}")
+            self._show_error(f"Failed to load: {e}")
+            self._stop_loading()
+
+    async def _unload_model(self) -> None:
+        """Unload model — runs in a Textual worker (non-blocking)."""
+        if not self._model or not self._model.loaded or self._loading:
+            return
+
+        if not self._model.instance_id:
+            self._show_error("No instance ID available")
+            return
+
+        self._start_loading()
+        try:
+            client = self._store.api_client
+            if not client:
+                self._show_error("Not connected to server")
+                return
+
+            await client.unload_model(self._model.instance_id)
+
+            if self._store.active_model.value == self.model_id:
+                self._store.active_model.value = None
+
+            models = await client.get_models()
+            self._store.models.value = models
+
+            self._stop_loading()
+            self.dismiss("unloaded")
+            self.app.notify(f"Model '{self.model_id}' unloaded successfully")
+
+        except asyncio.CancelledError:
+            logger.info(f"Unload of {self.model_id} cancelled")
+        except Exception as e:
+            logger.error(f"Failed to unload model {self.model_id}: {e}")
+            self._show_error(f"Failed to unload: {e}")
+            self._stop_loading()
+
+    # ------------------------------------------------------------------
+    # UI helpers
+    # ------------------------------------------------------------------
+
+    def _get_model(self) -> Optional[ModelInfo]:
+        """Get model info from the store."""
+        for model in self._store.models.value:
+            if model.id == self.model_id:
+                return model
+        return None
+
+    def _start_loading(self) -> None:
+        """Begin the loading animation and disable Load/Eject buttons."""
+        self._loading = True
+        self._loading_dots = 0
+        self._update_loading_text()
+        if self._loading_widget:
+            self._loading_widget.display = True
+        # Keep Cancel enabled so the user can dismiss during a long load
+        for btn in self.query(Button):
+            if btn.id != "cancel-btn":
+                btn.disabled = True
+        self._loading_task = self.set_interval(0.5, self._tick_loading_dots)
+
+    def _tick_loading_dots(self) -> None:
+        """Advance the dot counter and refresh the loading label (interval callback)."""
+        self._loading_dots = (self._loading_dots + 1) % 4
+        self._update_loading_text()
+
+    def _update_loading_text(self) -> None:
+        """Update the pre-composed loading Static text."""
+        if self._loading_widget:
+            dots = "." * self._loading_dots
+            self._loading_widget.update(f"⏳ Loading{dots}")
+
+    def _stop_loading(self) -> None:
+        """Stop the loading animation and re-enable all buttons."""
+        self._loading = False
+        if self._loading_task:
+            self._loading_task.stop()
+            self._loading_task = None
+        if self._loading_widget:
+            self._loading_widget.display = False
+        for btn in self.query(Button):
+            btn.disabled = False
+
+    def _show_error(self, message: str) -> None:
+        """Display an error message in the pre-composed error widget."""
+        if self._error_widget:
+            self._error_widget.update(message)
+            self._error_widget.display = True
+        else:
+            logger.error(f"ModelDetailScreen error (no widget): {message}")
