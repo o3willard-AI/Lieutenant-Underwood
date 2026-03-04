@@ -18,7 +18,6 @@ from textual.widgets import Button, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
-from lmstudio_tui.utils import extract_quantization
 
 logger = logging.getLogger(__name__)
 
@@ -124,15 +123,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     with Horizontal(classes="info-row"):
                         yield Static("ID:", classes="label")
                         yield Static(self._model.id, classes="value")
-
-                quant = (
-                    self._model.quantization
-                    if self._model.quantization != "-"
-                    else extract_quantization(self._model.id)
-                )
-                with Horizontal(classes="info-row"):
-                    yield Static("Quant:", classes="label")
-                    yield Static(quant, classes="value")
 
                 cfg = self._store.get_model_config(self.model_id)
                 if self._model.loaded and self._model.loaded_context_length > 0:

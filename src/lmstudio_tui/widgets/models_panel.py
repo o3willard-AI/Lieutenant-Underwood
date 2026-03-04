@@ -585,20 +585,20 @@ class ModelsPanel(Container):
                 return
 
             # Load model with configuration
-            result = await client.load_model(
+            await client.load_model(
                 model_id,
                 context_length=context_length,
             )
 
-            # Check if actually loaded by refreshing
-            await self._refresh_models()
-            
-            # Verify load succeeded
-            updated_model = self._get_model_by_id(model_id)
-            if updated_model and updated_model.loaded:
-                self.app.notify(f"✓ Model '{model_id}' loaded successfully", severity="information")
-            else:
-                self.app.notify(f"⚠ Model load may have failed - check logs", severity="warning")
+            # Notify success immediately — API confirmed load
+            self.app.notify(f"✓ Model '{model_id}' loaded successfully", severity="information")
+
+            # Refresh model list as best-effort; timeout here is not a load failure
+            try:
+                models = await client.get_models()
+                self._store.models.value = models
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"Failed to load model {model_id}: {e}", exc_info=True)
@@ -634,12 +634,19 @@ class ModelsPanel(Container):
                 return
             
             await client.unload_model(model.instance_id)
-            
+
             if self._store.active_model.value == model_id:
                 self._store.active_model.value = None
-            
-            await self._refresh_models()
+
+            # Notify success immediately — API confirmed unload
             self.app.notify(f"Model '{model_id}' unloaded", severity="information")
+
+            # Refresh model list as best-effort
+            try:
+                models = await client.get_models()
+                self._store.models.value = models
+            except Exception:
+                pass
             
         except Exception as e:
             logger.error(f"Failed to unload model {model_id}: {e}", exc_info=True)
