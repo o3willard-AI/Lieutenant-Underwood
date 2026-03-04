@@ -3,7 +3,10 @@
 from contextlib import suppress
 from dataclasses import dataclass
 
-import pynvml
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", FutureWarning)
+    import pynvml
 
 
 @dataclass
