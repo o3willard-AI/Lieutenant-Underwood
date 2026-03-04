@@ -188,10 +188,16 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self.call_after_refresh(self._enable_buttons_after_mount)
 
     def _enable_buttons_after_mount(self) -> None:
-        """Re-enable buttons after the first render cycle."""
+        """Re-enable buttons after the first render cycle and restore keyboard focus."""
         if not self._loading:
             for btn in self.query(Button):
                 btn.disabled = False
+        # Explicitly focus Cancel so arrow keys / Tab / Space / Enter all work.
+        # Disabling widgets on mount causes Textual to drop focus; we must restore it.
+        try:
+            self.query_one("#cancel-btn", Button).focus()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -220,15 +226,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             self._ignore_enter = False
             return
 
-    def key_tab(self) -> None:
-        """Move focus to next focusable widget."""
-        self.screen.focus_next()
-        self._ignore_enter = False
-
-    def key_shift_tab(self) -> None:
-        """Move focus to previous focusable widget."""
-        self.screen.focus_previous()
-        self._ignore_enter = False
 
     # ------------------------------------------------------------------
     # Load / unload workers
@@ -246,7 +243,23 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 self._show_error("Not connected to server")
                 return
 
-            await client.load_model(self.model_id)
+            # Resolve context length from the models-panel configuration frame
+            config = self._store.get_model_config(self.model_id)
+            if config.context_length == -1:  # Auto (Max VRAM)
+                total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value)
+                used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value)
+                available_vram = max(0, total_vram - used_vram)
+                context_length = self._store.calculate_max_context(self.model_id, available_vram)
+            elif config.context_length == -2:  # Auto (Model Max)
+                context_length = (
+                    self._model.max_context_length
+                    if self._model and self._model.max_context_length > 0
+                    else 8192
+                )
+            else:
+                context_length = config.context_length
+
+            await client.load_model(self.model_id, context_length=context_length)
 
             models = await client.get_models()
             self._store.models.value = models
