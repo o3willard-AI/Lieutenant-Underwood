@@ -228,8 +228,8 @@ class ModelsPanel(Container):
             yield self._context_select
             
             # KV Cache Quantization
-            yield Static("KV Cache Quant (estimate only)", classes="config-label")
-            yield Static("For memory estimate — LM Studio manages KV cache internally", classes="config-desc")
+            yield Static("KV Cache Quantization", classes="config-label")
+            yield Static("q8_0 saves ~50% KV VRAM vs f16; q4_0 saves ~75%", classes="config-desc")
             self._kv_quant_select = Select(
                 KV_QUANT_OPTIONS,
                 value="f16",
@@ -588,6 +588,7 @@ class ModelsPanel(Container):
             await client.load_model(
                 model_id,
                 context_length=context_length,
+                kv_cache_quantization=config.kv_cache_quantization,
             )
 
             # Notify success immediately — API confirmed load

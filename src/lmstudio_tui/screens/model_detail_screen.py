@@ -146,7 +146,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 )
                 with Horizontal(classes="info-row"):
                     yield Static("KV Cache:", classes="label")
-                    yield Static(f"{kv_label} (est.)", classes="value")
+                    yield Static(kv_label, classes="value")
 
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"
@@ -281,7 +281,11 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             else:
                 context_length = config.context_length
 
-            await client.load_model(self.model_id, context_length=context_length)
+            await client.load_model(
+                self.model_id,
+                context_length=context_length,
+                kv_cache_quantization=config.kv_cache_quantization,
+            )
 
             # Dismiss immediately — load succeeded.
             # Refresh model list as best-effort; a timeout here must not

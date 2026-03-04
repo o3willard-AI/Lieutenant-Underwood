@@ -146,6 +146,7 @@ class LMStudioClient:
         self,
         model_id: str,
         context_length: Optional[int] = None,
+        kv_cache_quantization: Optional[str] = None,
     ) -> bool:
         """Load a model into memory.
 
@@ -172,6 +173,11 @@ class LMStudioClient:
                 "context_length": context_length if context_length is not None else 8192,
                 "flash_attention": True,
             }
+            # KV cache quantization (q8_0 halves VRAM vs f16 default; q4_0 reduces to ~1/3)
+            # V-cache quantization requires flash_attention=True, which we always set.
+            if kv_cache_quantization and kv_cache_quantization != "f16":
+                payload["llama_k_cache_quantization_type"] = kv_cache_quantization
+                payload["llama_v_cache_quantization_type"] = kv_cache_quantization
 
             # Load can take 30-120 seconds for large models
             response = await self._client.post(

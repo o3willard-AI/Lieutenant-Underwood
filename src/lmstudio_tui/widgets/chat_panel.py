@@ -156,10 +156,11 @@ class ChatPanel(Container):
 
             self._history_content.update("\n".join(lines) if lines else "No messages yet.")
 
-            # Scroll after the next layout pass so the widget knows its new height.
-            # Calling scroll_end() immediately after update() scrolls to the
-            # pre-update bottom because layout hasn't been recalculated yet.
             if self._history_widget:
+                # Two-pass scroll: immediate call reaches current layout bottom;
+                # call_after_refresh reaches the new bottom after Textual
+                # recalculates the Static widget's height.
+                self._history_widget.scroll_end(animate=False)
                 self.call_after_refresh(self._scroll_history_to_bottom)
         except Exception as e:
             logger.error(f"Error rendering chat history: {e}")

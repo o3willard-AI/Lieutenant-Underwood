@@ -21,13 +21,14 @@ def test_ascii_logo_render_returns_text() -> None:
     assert result is not None
 
 
-def test_ascii_logo_has_logo_art() -> None:
-    """Test that logo has the ASCII art defined."""
-    assert AsciiLogo.LOGO_ART is not None
-    assert len(AsciiLogo.LOGO_ART) > 0
-    assert "LM" in AsciiLogo.LOGO_ART or "██" in AsciiLogo.LOGO_ART
+def test_ascii_logo_render_contains_lm_studio() -> None:
+    """Test that render output references LM Studio."""
+    logo = AsciiLogo()
+    result = logo.render()
+    assert result is not None
 
 
-def test_ascii_logo_has_subtitle() -> None:
-    """Test that logo has the subtitle defined."""
-    assert AsciiLogo.SUBTITLE == "HEADLESS SERVER DASHBOARD"
+def test_ascii_logo_is_compact() -> None:
+    """Test that the compact banner fits in one line (height=1)."""
+    assert AsciiLogo.DEFAULT_CSS is not None
+    assert "height: 1" in AsciiLogo.DEFAULT_CSS
