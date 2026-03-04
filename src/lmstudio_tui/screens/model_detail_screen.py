@@ -146,7 +146,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 )
                 with Horizontal(classes="info-row"):
                     yield Static("KV Cache:", classes="label")
-                    yield Static(kv_label, classes="value")
+                    yield Static(f"{kv_label} (est.)", classes="value")
 
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"

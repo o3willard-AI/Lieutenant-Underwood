@@ -228,8 +228,8 @@ class ModelsPanel(Container):
             yield self._context_select
             
             # KV Cache Quantization
-            yield Static("KV Cache Quantization", classes="config-label")
-            yield Static("Memory precision for attention cache", classes="config-desc")
+            yield Static("KV Cache Quant (estimate only)", classes="config-label")
+            yield Static("For memory estimate — LM Studio manages KV cache internally", classes="config-desc")
             self._kv_quant_select = Select(
                 KV_QUANT_OPTIONS,
                 value="f16",

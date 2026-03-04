@@ -156,11 +156,18 @@ class ChatPanel(Container):
 
             self._history_content.update("\n".join(lines) if lines else "No messages yet.")
 
-            # Auto-scroll to bottom
+            # Scroll after the next layout pass so the widget knows its new height.
+            # Calling scroll_end() immediately after update() scrolls to the
+            # pre-update bottom because layout hasn't been recalculated yet.
             if self._history_widget:
-                self._history_widget.scroll_end(animate=False)
+                self.call_after_refresh(self._scroll_history_to_bottom)
         except Exception as e:
             logger.error(f"Error rendering chat history: {e}")
+
+    def _scroll_history_to_bottom(self) -> None:
+        """Scroll the chat history to the bottom after layout has updated."""
+        if self._history_widget:
+            self._history_widget.scroll_end(animate=False)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission.
