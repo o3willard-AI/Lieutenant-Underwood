@@ -274,7 +274,7 @@ class GPUPanel(Container):
     def _restore_data_table(self) -> None:
         """Re-create the DataTable after _show_error() removed it."""
         self.remove_children()
-        self._data_table = DataTable(show_header=True, header_height=1)
+        self._data_table = DataTable(show_header=True, header_height=1, cursor_type="none")
         self.mount(Static("🎮 GPU STATUS", classes="title"))
         self.mount(self._data_table)
         self._setup_data_table()
@@ -334,5 +334,5 @@ class GPUPanel(Container):
         # Title
         yield Static("🎮 GPU STATUS", classes="title")
         # DataTable for GPU info with header row
-        self._data_table = DataTable(show_header=True, header_height=1)
+        self._data_table = DataTable(show_header=True, header_height=1, cursor_type="none")
         yield self._data_table

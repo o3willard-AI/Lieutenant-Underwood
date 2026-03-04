@@ -151,6 +151,13 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     yield Static("Context:", classes="label")
                     yield Static(context_text, classes="value")
 
+                kv_label = {"f16": "F16", "q8_0": "Q8_0", "q4_0": "Q4_0"}.get(
+                    cfg.kv_cache_quantization, cfg.kv_cache_quantization.upper()
+                )
+                with Horizontal(classes="info-row"):
+                    yield Static("KV Cache:", classes="label")
+                    yield Static(kv_label, classes="value")
+
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"
                 with Horizontal(classes="info-row"):
