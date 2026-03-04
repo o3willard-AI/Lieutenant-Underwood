@@ -98,7 +98,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self.model_id = model_id
         self._store = get_store()
         self._model: Optional[ModelInfo] = None
-        self._ignore_enter = True
         self._loading = False
         self._loading_dots = 0
         self._loading_task = None   # Textual interval Timer
@@ -135,10 +134,17 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     yield Static("Quant:", classes="label")
                     yield Static(quant, classes="value")
 
+                cfg = self._store.get_model_config(self.model_id)
                 if self._model.loaded and self._model.loaded_context_length > 0:
-                    context_text = f"{self._model.loaded_context_length:,} / {self._model.max_context_length:,}"
+                    context_text = f"{self._model.loaded_context_length:,} tokens (active)"
+                elif cfg.context_length == -1:
+                    context_text = "Auto (Max VRAM)"
+                elif cfg.context_length == -2:
+                    context_text = "Auto (Model Max)"
+                elif cfg.context_length > 0:
+                    context_text = f"{cfg.context_length:,} tokens"
                 elif self._model.max_context_length > 0:
-                    context_text = f"{self._model.max_context_length:,}"
+                    context_text = f"{self._model.max_context_length:,} tokens (model max)"
                 else:
                     context_text = "-"
                 with Horizontal(classes="info-row"):
@@ -182,7 +188,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
 
         # Disable buttons for one render cycle so the Enter key that opened
         # this modal does not immediately fire Cancel.
-        self._ignore_enter = True
         for btn in self.query(Button):
             btn.disabled = True
         self.call_after_refresh(self._enable_buttons_after_mount)
@@ -220,12 +225,32 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         """Handle Escape key - close modal."""
         self.dismiss(None)
 
-    def key_enter(self) -> None:
-        """Ignore first Enter press (came from the parent screen that opened us)."""
-        if self._ignore_enter:
-            self._ignore_enter = False
-            return
+    def key_tab(self) -> None:
+        """Tab cycles focus forward through enabled buttons."""
+        self._cycle_focus(forward=True)
 
+    def key_shift_tab(self) -> None:
+        """Shift-Tab cycles focus backward through enabled buttons."""
+        self._cycle_focus(forward=False)
+
+    def key_right(self) -> None:
+        """Right arrow moves focus to next button."""
+        self._cycle_focus(forward=True)
+
+    def key_left(self) -> None:
+        """Left arrow moves focus to previous button."""
+        self._cycle_focus(forward=False)
+
+    def _cycle_focus(self, forward: bool) -> None:
+        """Cycle keyboard focus among the enabled buttons."""
+        buttons = [b for b in self.query(Button) if not b.disabled]
+        if len(buttons) < 2:
+            return
+        try:
+            idx = buttons.index(self.focused)
+        except ValueError:
+            idx = -1
+        buttons[(idx + (1 if forward else -1)) % len(buttons)].focus()
 
     # ------------------------------------------------------------------
     # Load / unload workers
