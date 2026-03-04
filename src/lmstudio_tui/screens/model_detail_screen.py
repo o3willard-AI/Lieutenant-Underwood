@@ -261,12 +261,17 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
 
             await client.load_model(self.model_id, context_length=context_length)
 
-            models = await client.get_models()
-            self._store.models.value = models
-
+            # Dismiss immediately — load succeeded.
+            # Refresh model list as best-effort; a timeout here must not
+            # be reported as a load failure.
             self._stop_loading()
             self.dismiss("loaded")
             self.app.notify(f"Model '{self.model_id}' loaded successfully")
+            try:
+                models = await client.get_models()
+                self._store.models.value = models
+            except Exception:
+                pass
 
         except asyncio.CancelledError:
             # User dismissed the modal while loading — that's fine.
@@ -297,12 +302,15 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             if self._store.active_model.value == self.model_id:
                 self._store.active_model.value = None
 
-            models = await client.get_models()
-            self._store.models.value = models
-
+            # Dismiss immediately — unload succeeded.
             self._stop_loading()
             self.dismiss("unloaded")
             self.app.notify(f"Model '{self.model_id}' unloaded successfully")
+            try:
+                models = await client.get_models()
+                self._store.models.value = models
+            except Exception:
+                pass
 
         except asyncio.CancelledError:
             logger.info(f"Unload of {self.model_id} cancelled")

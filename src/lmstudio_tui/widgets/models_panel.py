@@ -724,12 +724,9 @@ class ModelsPanel(Container):
         self.run_worker(self.action_unload_model())
 
     def key_enter(self) -> None:
-        """Handle Enter key - show details (only if Select not focused)."""
-        # Don't intercept Enter if a Select widget has focus
-        # (Select needs Enter to confirm dropdown selection)
-        if isinstance(self.app.focused, Select):
-            return
-        self.action_show_details()
+        """Handle Enter key - show details only when DataTable has focus."""
+        if isinstance(self.app.focused, DataTable):
+            self.action_show_details()
 
     def key_r(self) -> None:
         """Handle 'r' key - refresh."""
