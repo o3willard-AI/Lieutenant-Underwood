@@ -44,11 +44,11 @@ class ChatPanel(Container):
     }
     ChatPanel VerticalScroll.chat-history {
         height: 8;
-        border: solid $surface;
+        border: none;
         padding: 0 1;
     }
     ChatPanel VerticalScroll.chat-history:focus {
-        border: solid $primary;
+        border-left: tall $primary;
     }
     ChatPanel Static.chat-message {
         height: auto;
@@ -70,10 +70,18 @@ class ChatPanel(Container):
     ChatPanel Input {
         width: 1fr;
         margin-top: 1;
+        border: none;
+        height: 1;
+        padding: 0 1;
     }
     ChatPanel Static.hint {
         color: $text-muted;
         text-style: italic;
+        height: 1;
+        margin-top: 0;
+    }
+    ChatPanel Static.active-model {
+        color: $text-muted;
         height: 1;
         margin-top: 0;
     }
@@ -88,6 +96,7 @@ class ChatPanel(Container):
         self._history_widget: Optional[VerticalScroll] = None
         self._history_content: Optional[Static] = None
         self._input_widget: Optional[Input] = None
+        self._active_model_widget: Optional[Static] = None
         self._current_stream_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
         # Plain Python attributes — NOT Textual reactives; setting them from
@@ -98,8 +107,10 @@ class ChatPanel(Container):
 
     def compose(self):
         """Compose the chat panel widgets."""
-        yield Static("💬 CHAT / DOWNLOAD", classes="title")
-        
+        yield Static("💬 CHAT", classes="title")
+        self._active_model_widget = Static("", classes="active-model")
+        yield self._active_model_widget
+
         # Chat history display (scrollable)
         with VerticalScroll(classes="chat-history") as self._history_widget:
             self._history_content = Static("", classes="chat-content")
@@ -114,16 +125,35 @@ class ChatPanel(Container):
             yield self._input_widget
         
         # Hint text
-        yield Static("Commands: /download <key>  |  /switch <model_id>  |  Type to chat", classes="hint")
+        yield Static("Commands: /add <path>  |  /switch <model_id>  |  /clear  |  Type to chat", classes="hint")
 
     def on_mount(self) -> None:
         """Mount panel and set up watchers."""
+        # Watch active model changes
+        self._unwatch_active_model = self._store.active_model.watch(
+            lambda old, new: self._update_active_model_display(new)
+        )
+        self._update_active_model_display(self._store.active_model.value)
+
         # Add welcome message
         self._add_message("system", "Welcome! Chat with a loaded model or use /commands.")
         self._update_history_display()
-        # FIX: Set focus on input so typing works immediately
         if self._input_widget:
             self._input_widget.focus()
+
+    def on_unmount(self) -> None:
+        """Clean up watchers."""
+        if hasattr(self, "_unwatch_active_model"):
+            self._unwatch_active_model()
+
+    def _update_active_model_display(self, model_id: Optional[str]) -> None:
+        """Update the active model label."""
+        if not self._active_model_widget:
+            return
+        if model_id:
+            self._active_model_widget.update(f"Model: {model_id}")
+        else:
+            self._active_model_widget.update("Model: none selected")
 
     def _add_message(self, role: str, message: str) -> None:
         """Add a message to chat history.
@@ -201,46 +231,51 @@ class ChatPanel(Container):
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
         
-        if cmd == "/download":
-            await self._cmd_download(arg)
+        if cmd == "/add":
+            await self._cmd_add(arg)
         elif cmd == "/switch":
             await self._cmd_switch(arg)
         elif cmd == "/clear":
             self._chat_history.clear()
             self._add_message("system", "Chat history cleared.")
         elif cmd == "/help":
-            self._add_message("system", "Commands: /download <key>, /switch <model_id>, /clear, /help")
+            self._add_message("system", "Commands: /add <path>, /switch <model_id>, /clear, /help")
         else:
             self._add_message("error", f"Unknown command: {cmd}")
 
-    async def _cmd_download(self, key: str) -> None:
-        """Handle /download command.
-        
+    async def _cmd_add(self, path: str) -> None:
+        """Handle /add command — import a local model file into LM Studio.
+
         Args:
-            key: Model key or URL to download.
+            path: Local filesystem path to the model file to import.
         """
-        if not key:
-            self._add_message("error", "Usage: /download <model_key_or_url>")
+        if not path:
+            self._add_message("error", "Usage: /add <local_path>")
+            self._add_message("system", "Tip: press 'd' to browse and download models from Hugging Face")
             return
-        
-        self._add_message("system", f"Initiating download: {key}...")
-        
+
+        cli = self._store.lms_cli
+        if not cli:
+            self._add_message("error", "lms CLI not found — cannot import model")
+            return
+
+        self._add_message("system", f"Importing: {path}…")
         try:
-            client = self._store.api_client
-            if not client:
-                self._add_message("error", "Not connected to server")
-                return
-            
-            # LM Studio API for downloading models
-            # This is a placeholder - actual implementation depends on API availability
-            logger.info(f"Download requested for: {key}")
-            
-            # For now, just notify user
-            self._add_message("system", f"Download feature not yet implemented via API. Use LM Studio UI to download: {key}")
-            
+            import asyncio
+            proc = await asyncio.create_subprocess_exec(
+                str(cli.binary_path), "import", path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60.0)
+            if proc.returncode == 0:
+                self._add_message("system", f"✓ Imported: {path}")
+            else:
+                err = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+                self._add_message("error", f"Import failed: {err}")
         except Exception as e:
-            logger.error(f"Download failed: {e}")
-            self._add_message("error", f"Download failed: {e}")
+            logger.error(f"/add failed: {e}")
+            self._add_message("error", f"Import failed: {e}")
 
     async def _cmd_switch(self, model_id: str) -> None:
         """Handle /switch command.

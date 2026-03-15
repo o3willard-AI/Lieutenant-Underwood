@@ -6,6 +6,7 @@ from textual.widgets import DataTable, Static
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.widgets.models_panel import (
     ModelsPanel,
+    TTL_OPTIONS,
     format_size,
     extract_quantization,
 )
@@ -211,18 +212,39 @@ class TestModelsPanel:
     def test_key_bindings_exist(self):
         """Test that key binding methods exist."""
         panel = ModelsPanel()
-        
+
         # Check methods exist
         assert hasattr(panel, 'key_l')
         assert hasattr(panel, 'key_u')
         assert hasattr(panel, 'key_enter')
         assert hasattr(panel, 'key_r')
-        
+
         # Check action methods exist
         assert hasattr(panel, 'action_load_model')
         assert hasattr(panel, 'action_unload_model')
         assert hasattr(panel, 'action_show_details')
         assert hasattr(panel, 'action_refresh')
+
+    def test_ttl_select_initialized_to_none(self):
+        """Test that _ttl_select is initialised to None before compose."""
+        panel = ModelsPanel()
+        assert panel._ttl_select is None
+
+    def test_ttl_options_includes_off(self):
+        """Test that TTL_OPTIONS contains an 'Off' entry with value None."""
+        labels = [label for label, _ in TTL_OPTIONS]
+        values = [value for _, value in TTL_OPTIONS]
+        assert "Off" in labels
+        assert None in values
+
+    def test_ttl_options_includes_common_intervals(self):
+        """Test that TTL_OPTIONS covers expected common intervals."""
+        values = {value for _, value in TTL_OPTIONS if value is not None}
+        # Should include at least 1 min, 5 min, 30 min, and 1 hour
+        assert 60 in values
+        assert 300 in values
+        assert 1800 in values
+        assert 3600 in values
 
 
 class TestModelInfoIntegration:

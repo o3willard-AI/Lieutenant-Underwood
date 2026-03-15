@@ -33,6 +33,7 @@ from typing import Callable, Generic, Optional, TypeVar
 
 from lmstudio_tui.api.client import LMStudioClient, ModelInfo
 from lmstudio_tui.config import AppConfig
+from lmstudio_tui.cpu.monitor import CPUMetrics, CPUMonitor
 from lmstudio_tui.gpu.monitor import GPUMetrics, GPUMonitor
 
 logger = logging.getLogger(__name__)
@@ -114,15 +115,27 @@ class ReactiveVar(Generic[T]):
 
 
 @dataclass
+class DownloadProgress:
+    """Real-time state of an active model download for UI display."""
+
+    model_key: str
+    progress_line: str        # Last stripped log line
+    elapsed_seconds: float    # Seconds since download started
+    is_running: bool          # False once process exits
+    error: Optional[str] = None
+
+
+@dataclass
 class ModelLoadConfig:
     """Per-model load configuration stored as defaults.
 
     These settings are persisted per-model and used when loading.
     Changes require unload+reload to take effect.
     """
-    gpu_offload_percent: int = 100  # 0-100 or -1 for "Max"
-    context_length: int = 8192  # Selected from predefined options
-    kv_cache_quantization: str = "f16"  # f16, q8_0, q4_0, etc.
+    gpu_offload_percent: int = -1         # -1=max, 0=off, 1-100=percent
+    context_length: int = 8192            # Selected from predefined options
+    kv_cache_quantization: str = "f16"    # f16, q8_0, q4_0 — kept for REST fallback
+    ttl: Optional[int] = None             # Auto-unload after N idle seconds; None=disabled
 
 
 @dataclass
@@ -135,6 +148,8 @@ class StoreState:
     config: ReactiveVar[AppConfig] = field(default_factory=lambda: ReactiveVar(AppConfig()))
     gpu_metrics: ReactiveVar[list[GPUMetrics]] = field(default_factory=lambda: ReactiveVar([]))
     gpu_error: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
+    cpu_metrics: ReactiveVar[Optional[CPUMetrics]] = field(default_factory=lambda: ReactiveVar(None))
+    cpu_error: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
     models: ReactiveVar[list[ModelInfo]] = field(default_factory=lambda: ReactiveVar([]))
     active_model: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
     models_error: ReactiveVar[Optional[str]] = field(default_factory=lambda: ReactiveVar(None))
@@ -145,6 +160,8 @@ class StoreState:
     model_loading_dots: ReactiveVar[int] = field(default_factory=lambda: ReactiveVar(0))
     # Per-model load configurations (model_id -> config)
     model_configs: ReactiveVar[dict[str, ModelLoadConfig]] = field(default_factory=lambda: ReactiveVar({}))
+    # Active download progress (None when no download running)
+    download_progress: ReactiveVar[Optional[DownloadProgress]] = field(default_factory=lambda: ReactiveVar(None))
 
 
 class RootStore:
@@ -184,8 +201,10 @@ class RootStore:
                     # Initialize immediately in __new__ to avoid __init__ issues
                     cls._instance._state = StoreState()
                     cls._instance._gpu_monitor: Optional[GPUMonitor] = None
+                    cls._instance._cpu_monitor: Optional[CPUMonitor] = None
                     cls._instance._api_client: Optional[LMStudioClient] = None
                     cls._instance._config_path: Optional[Path] = None
+                    cls._instance._lms_cli = None
         return cls._instance
 
     def __init__(self) -> None:
@@ -254,6 +273,11 @@ class RootStore:
     def model_configs(self) -> ReactiveVar[dict[str, ModelLoadConfig]]:
         """Per-model load configurations."""
         return self._state.model_configs
+
+    @property
+    def download_progress(self) -> ReactiveVar[Optional[DownloadProgress]]:
+        """Current download progress, or None if no download is active."""
+        return self._state.download_progress
 
     # Configuration Methods
 
@@ -345,12 +369,47 @@ class RootStore:
 
     @property
     def gpu_monitor(self) -> Optional[GPUMonitor]:
-        """Get the GPU monitor instance (if started).
+        """Get the GPU monitor instance (if started)."""
+        return self._gpu_monitor
+
+    @property
+    def cpu_metrics(self) -> ReactiveVar[Optional[CPUMetrics]]:
+        """Current CPU and RAM metrics."""
+        return self._state.cpu_metrics
+
+    @property
+    def cpu_error(self) -> ReactiveVar[Optional[str]]:
+        """CPU monitoring error (if any)."""
+        return self._state.cpu_error
+
+    def start_cpu_monitoring(self) -> bool:
+        """Initialise CPU monitoring via psutil.
 
         Returns:
-            GPUMonitor instance if started, None otherwise.
+            True if psutil is available and monitoring started, False otherwise.
         """
-        return self._gpu_monitor
+        if self._cpu_monitor is not None:
+            return True
+        self._cpu_monitor = CPUMonitor()
+        if self._cpu_monitor.start():
+            logger.info("CPU monitoring started")
+            return True
+        self._cpu_monitor = None
+        logger.warning("CPU monitoring not available — psutil missing?")
+        return False
+
+    def stop_cpu_monitoring(self) -> None:
+        """Stop CPU monitoring and clean up."""
+        if self._cpu_monitor is not None:
+            self._cpu_monitor.shutdown()
+            self._cpu_monitor = None
+            self.cpu_metrics.value = None
+            self.cpu_error.value = None
+
+    @property
+    def cpu_monitor(self) -> Optional[CPUMonitor]:
+        """Get the CPU monitor instance (if started)."""
+        return self._cpu_monitor
 
     # API Operations
 
@@ -407,6 +466,33 @@ class RootStore:
             LMStudioClient instance if connected, None otherwise.
         """
         return self._api_client
+
+    @property
+    def lms_cli(self):
+        """Get the LmsCli instance (if discovered), or None."""
+        return self._lms_cli
+
+    def initialize_lms_cli(self, binary_path: Optional[str] = None) -> bool:
+        """Discover and initialize the lms CLI tool.
+
+        Args:
+            binary_path: Optional override path to the lms binary.
+
+        Returns:
+            True if the lms CLI was found and initialized, False otherwise.
+        """
+        from lmstudio_tui.cli.lms_cli import LmsCli
+
+        config = self.config.value
+        override = binary_path or (
+            config.lms_cli_path if hasattr(config, "lms_cli_path") else None
+        )
+        cli = LmsCli.discover(override_path=override)
+        if cli is not None:
+            cli.host = config.server.host
+            cli.port = config.server.port
+        self._lms_cli = cli
+        return cli is not None
 
     # State Actions
 

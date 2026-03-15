@@ -1,222 +1,181 @@
 #!/bin/bash
 #
-# Lieutenant-Underwood (LM Studio TUI) Installation Script
-# One-line install: curl -sSL https://install.lmstui.dev | sudo bash
+# Lieutenant-Underwood (LM Studio TUI) — Install / Upgrade / Uninstall Script
+#
+# Usage:
+#   Fresh install:  sudo bash install.sh
+#   Upgrade:        sudo bash install.sh --upgrade
+#   Uninstall:      sudo bash install.sh --uninstall
+#
+# Requirements: Python 3.9+, git, curl
 #
 
 set -e
 
-# Colors for output
+# ── Configuration ────────────────────────────────────────────────────────────
+INSTALL_DIR="/opt/lieutenant-underwood"
+VENV_DIR="$INSTALL_DIR/venv"
+BIN_DIR="/usr/local/bin"
+REPO_URL="https://github.com/o3willard-AI/Lieutenant-Underwood"
+MIN_PYTHON_VERSION="3.9"
+LTU_VERSION="0.4.0"
+
+# ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-INSTALL_DIR="/opt/lieutenant-underwood"
-BIN_DIR="/usr/local/bin"
-USER_CONFIG_DIR="$HOME/.config/lmstui"
-REPO_URL="https://github.com/o3willard-AI/Lieutenant-Underwood"
-MIN_PYTHON_VERSION="3.10"
+print_error()   { echo -e "${RED}✗ $1${NC}" >&2; }
+print_success() { echo -e "${GREEN}✓ $1${NC}"; }
+print_info()    { echo -e "${BLUE}ℹ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠ $1${NC}"; }
 
-# Helper functions
-print_error() {
-    echo -e "${RED}✗ $1${NC}" >&2
+print_banner() {
+    echo ""
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}  Lieutenant-Underwood v${LTU_VERSION} Installer              ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}  LM Studio Terminal User Interface                    ${BLUE}║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
+    echo ""
 }
 
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
-}
-
+# ── Pre-flight checks ────────────────────────────────────────────────────────
 check_sudo() {
-    if [ "$EUID" -ne 0 ]; then 
+    if [ "$EUID" -ne 0 ]; then
         print_error "This script must be run with sudo"
-        echo "Please run: curl -sSL https://install.lmstui.dev | sudo bash"
+        echo "Usage: sudo bash install.sh [--upgrade|--uninstall]"
         exit 1
     fi
 }
 
 check_python() {
     print_info "Checking Python version..."
-    
-    if ! command -v python3 &> /dev/null; then
+
+    if ! command -v python3 &>/dev/null; then
         print_error "Python 3 is not installed"
-        echo "Please install Python 3.10 or higher:"
-        echo "  sudo apt update && sudo apt install python3 python3-pip"
+        echo "  sudo apt update && sudo apt install python3 python3-venv python3-pip"
         exit 1
     fi
-    
+
     PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-    
+
     if [ "$(printf '%s\n' "$MIN_PYTHON_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$MIN_PYTHON_VERSION" ]; then
-        print_error "Python $PYTHON_VERSION is installed, but $MIN_PYTHON_VERSION or higher is required"
+        print_error "Python $PYTHON_VERSION found but $MIN_PYTHON_VERSION+ is required"
         exit 1
     fi
-    
-    print_success "Python $PYTHON_VERSION found"
-}
 
-check_os() {
-    print_info "Checking operating system..."
-    
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        if [[ "$ID" != "ubuntu" && "$ID_LIKE" != *"ubuntu"* && "$ID" != "debian" && "$ID_LIKE" != *"debian"* ]]; then
-            print_warning "This installer is designed for Ubuntu/Debian"
-            echo "Detected: $NAME"
-            read -p "Continue anyway? [y/N] " -n 1 -r
-            echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
-        fi
-    else
-        print_warning "Cannot detect OS. Proceeding anyway..."
+    # Ensure python3-venv is available
+    if ! python3 -m venv --help &>/dev/null; then
+        print_error "python3-venv not found"
+        echo "  sudo apt install python3-venv"
+        exit 1
     fi
+
+    print_success "Python $PYTHON_VERSION OK"
 }
 
-download_and_install() {
-    print_info "Downloading Lieutenant-Underwood..."
-    
-    # Create temp directory
+# ── Download ─────────────────────────────────────────────────────────────────
+download_source() {
+    print_info "Downloading Lieutenant-Underwood from GitHub..."
+
     TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-    
-    # Download latest release
-    print_info "Fetching latest release from GitHub..."
-    LATEST_URL=$(curl -s https://api.github.com/repos/o3willard-AI/Lieutenant-Underwood/releases/latest | grep "tarball_url" | cut -d '"' -f 4)
-    
-    if [ -z "$LATEST_URL" ]; then
-        # Fallback to cloning master
-        print_info "Downloading from master branch..."
-        git clone --depth 1 "$REPO_URL" ltu
-        cd ltu
+    trap 'rm -rf "$TEMP_DIR"' EXIT
+
+    # Try latest release tarball first, fall back to git clone
+    LATEST_URL=$(curl -sf "https://api.github.com/repos/o3willard-AI/Lieutenant-Underwood/releases/latest" \
+        | grep '"tarball_url"' | cut -d '"' -f 4 || true)
+
+    if [ -n "$LATEST_URL" ]; then
+        curl -sL "$LATEST_URL" -o "$TEMP_DIR/ltu.tar.gz"
+        mkdir -p "$TEMP_DIR/ltu"
+        tar -xzf "$TEMP_DIR/ltu.tar.gz" -C "$TEMP_DIR/ltu" --strip-components=1
+        SOURCE_DIR="$TEMP_DIR/ltu"
     else
-        curl -sL "$LATEST_URL" -o ltu.tar.gz
-        tar -xzf ltu.tar.gz --strip-components=1
+        print_warning "No release found — cloning master branch..."
+        git clone --depth 1 "$REPO_URL" "$TEMP_DIR/ltu"
+        SOURCE_DIR="$TEMP_DIR/ltu"
     fi
-    
+
     print_success "Download complete"
 }
 
-install_app() {
-    print_info "Installing to $INSTALL_DIR..."
-
-    # Remove old installation if exists
-    if [ -d "$INSTALL_DIR" ]; then
-        print_warning "Removing existing installation..."
-        rm -rf "$INSTALL_DIR"
-    fi
-
-    # Create installation directory
+# ── Install steps ─────────────────────────────────────────────────────────────
+copy_app_files() {
     mkdir -p "$INSTALL_DIR"
+    cp -r "$SOURCE_DIR/src" "$INSTALL_DIR/"
+    cp "$SOURCE_DIR/pyproject.toml" "$INSTALL_DIR/"
+    [ -f "$SOURCE_DIR/README.md" ]    && cp "$SOURCE_DIR/README.md"    "$INSTALL_DIR/"
+    [ -f "$SOURCE_DIR/CHANGELOG.md" ] && cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/"
+    print_success "Application files installed to $INSTALL_DIR"
+}
 
-    # Copy application files
-    cp -r src "$INSTALL_DIR/"
-    cp pyproject.toml "$INSTALL_DIR/"
-    cp README.md "$INSTALL_DIR/"
-    cp CHANGELOG.md "$INSTALL_DIR/"
-
-    # Create __init__.py for launcher module
-    touch "$INSTALL_DIR/src/lmstudio_tui/__init__.py"
-
-    print_success "Application files installed"
+create_venv() {
+    print_info "Creating Python virtual environment..."
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip -q
+    print_success "Virtual environment created at $VENV_DIR"
 }
 
 install_python_deps() {
     print_info "Installing Python dependencies..."
-
-    # Try pip install in editable mode with break-system-packages for Ubuntu/Debian
-    if python3 -m pip install --break-system-packages -e "$INSTALL_DIR" 2>/dev/null; then
-        print_success "Python dependencies installed"
-    elif pip3 install --break-system-packages -e "$INSTALL_DIR" 2>/dev/null; then
-        print_success "Python dependencies installed"
-    else
-        print_error "Failed to install Python dependencies"
-        print_info "Manually run: pip3 install -e $INSTALL_DIR"
-        exit 1
-    fi
+    "$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
+    print_success "Python dependencies installed"
 }
 
 verify_installation() {
     print_info "Verifying installation..."
-    if python3 -c "import lmstudio_tui" 2>/dev/null; then
-        print_success "Installation verified"
+    if "$VENV_DIR/bin/python" -c "import lmstudio_tui" 2>/dev/null; then
+        VERSION=$("$VENV_DIR/bin/python" -c "from lmstudio_tui import __version__; print(__version__)")
+        print_success "Installed version: $VERSION"
     else
-        print_error "Installation verification failed - lmstudio_tui package not importable"
-        print_info "Check: pip3 install -e $INSTALL_DIR"
+        print_error "Verification failed — lmstudio_tui not importable"
+        print_info "Check: $VENV_DIR/bin/pip install $INSTALL_DIR"
         exit 1
     fi
 }
 
 create_launcher() {
-    print_info "Creating launcher..."
-    
-    cat > "$BIN_DIR/lmstui" << 'EOF'
+    print_info "Creating launcher at $BIN_DIR/lmstui..."
+    cat > "$BIN_DIR/lmstui" << EOF
 #!/bin/bash
-# Lieutenant-Underwood Launcher
-# Installed: /opt/lieutenant-underwood
-
-PYTHONPATH="/opt/lieutenant-underwood/src:$PYTHONPATH" \
-    python3 -m lmstudio_tui.launcher "$@"
+exec "$VENV_DIR/bin/python" -m lmstudio_tui.launcher "\$@"
 EOF
-    
     chmod +x "$BIN_DIR/lmstui"
-    
-    print_success "Launcher created at $BIN_DIR/lmstui"
+    print_success "Launcher created"
 }
 
 setup_user_config() {
-    print_info "Setting up user configuration..."
-    
-    # Get the actual user (not root)
-    REAL_USER=${SUDO_USER:-$USER}
+    REAL_USER="${SUDO_USER:-$USER}"
     REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
-    
-    USER_CONFIG="$REAL_HOME/.config/lmstui"
-    
-    mkdir -p "$USER_CONFIG"
-    
-    # Create default config if not exists
-    if [ ! -f "$USER_CONFIG/config.toml" ]; then
-        cat > "$USER_CONFIG/config.toml" << EOF
+    CONFIG_DIR="$REAL_HOME/.config/lmstudio-tui"
+
+    if [ ! -f "$CONFIG_DIR/config.toml" ]; then
+        mkdir -p "$CONFIG_DIR"
+        cat > "$CONFIG_DIR/config.toml" << TOML
 # Lieutenant-Underwood Configuration
-# Auto-generated on $(date)
+# Generated $(date)
 
-[lmstudio]
-# Host and port for LM Studio API
-# Auto-detected at runtime if not specified
-# host = "localhost"
-# port = 1234
+[server]
+host = "localhost"
+port = 1234
 
-[ui]
-# UI refresh rate in seconds
-refresh_rate = 1.0
+[gpu]
+update_frequency = 2.0
 
-[logging]
-# Log level: DEBUG, INFO, WARNING, ERROR
-level = "INFO"
-EOF
-        chown -R "$REAL_USER:$(id -gn "$REAL_USER")" "$USER_CONFIG"
-        print_success "Default config created at $USER_CONFIG/config.toml"
+[chat]
+system_prompt = "You are a helpful assistant."
+TOML
+        chown -R "$REAL_USER:$(id -gn "$REAL_USER")" "$CONFIG_DIR"
+        print_success "Default config created at $CONFIG_DIR/config.toml"
     else
-        print_info "User config already exists, preserving"
+        print_info "Existing config preserved at $CONFIG_DIR/config.toml"
     fi
 }
 
 create_uninstaller() {
-    print_info "Creating uninstaller..."
-    
-    cat > "$INSTALL_DIR/uninstall.sh" << 'EOF'
+    cat > "$INSTALL_DIR/uninstall.sh" << 'UNINSTALL'
 #!/bin/bash
 # Lieutenant-Underwood Uninstaller
 
@@ -225,90 +184,135 @@ set -e
 INSTALL_DIR="/opt/lieutenant-underwood"
 BIN_DIR="/usr/local/bin"
 
+if [ "$EUID" -ne 0 ]; then
+    echo "Please run with sudo: sudo bash /opt/lieutenant-underwood/uninstall.sh"
+    exit 1
+fi
+
 echo "Uninstalling Lieutenant-Underwood..."
 
-# Remove installation directory
-if [ -d "$INSTALL_DIR" ]; then
-    echo "Removing $INSTALL_DIR..."
-    rm -rf "$INSTALL_DIR"
+# Stop any running instance
+pkill -f "lmstudio_tui.launcher" 2>/dev/null && echo "Stopped running instance" || true
+
+# Remove pip package from venv
+if [ -f "$INSTALL_DIR/venv/bin/pip" ]; then
+    "$INSTALL_DIR/venv/bin/pip" uninstall -y lmstudio-tui 2>/dev/null || true
 fi
+
+# Remove install directory
+[ -d "$INSTALL_DIR" ] && rm -rf "$INSTALL_DIR" && echo "Removed $INSTALL_DIR"
 
 # Remove launcher
-if [ -L "$BIN_DIR/lmstui" ] || [ -f "$BIN_DIR/lmstui" ]; then
-    echo "Removing $BIN_DIR/lmstui..."
-    rm -f "$BIN_DIR/lmstui"
-fi
+[ -f "$BIN_DIR/lmstui" ] && rm -f "$BIN_DIR/lmstui" && echo "Removed $BIN_DIR/lmstui"
 
+echo ""
 echo "✓ Lieutenant-Underwood uninstalled successfully"
 echo ""
-echo "User config at ~/.config/lmstui/ was preserved."
-echo "To remove it manually: rm -rf ~/.config/lmstui/"
-EOF
-    
-    chmod +x "$INSTALL_DIR/uninstall.sh"
-    
-    print_success "Uninstaller created at $INSTALL_DIR/uninstall.sh"
-}
+echo "User config at ~/.config/lmstudio-tui/ was preserved."
+echo "To remove it: rm -rf ~/.config/lmstudio-tui/"
+UNINSTALL
 
-print_banner() {
-    echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}        Lieutenant-Underwood Installer v0.2.0         ${BLUE}║${NC}"
-    echo -e "${BLUE}║${NC}           LM Studio Terminal User Interface            ${BLUE}║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+    chmod +x "$INSTALL_DIR/uninstall.sh"
+    print_success "Uninstaller created at $INSTALL_DIR/uninstall.sh"
 }
 
 print_completion() {
     echo ""
     print_success "Installation complete!"
     echo ""
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}  Launch: ${YELLOW}lmstui${NC}                                     ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  Docs:   ${YELLOW}https://github.com/o3willard-AI/Lieutenant-Underwood${NC} ${GREEN}║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo "Uninstall anytime with: sudo /opt/lieutenant-underwood/uninstall.sh"
+    echo -e "${GREEN}  Launch:     ${YELLOW}lmstui${NC}"
+    echo -e "${GREEN}  Upgrade:    ${YELLOW}sudo bash install.sh --upgrade${NC}"
+    echo -e "${GREEN}  Uninstall:  ${YELLOW}sudo /opt/lieutenant-underwood/uninstall.sh${NC}"
+    echo -e "${GREEN}  Docs:       ${YELLOW}$REPO_URL${NC}"
     echo ""
 }
 
-# Main installation flow
-main() {
+# ── Upgrade ──────────────────────────────────────────────────────────────────
+do_upgrade() {
     print_banner
-    
     check_sudo
-    check_os
     check_python
-    
-    print_info "Starting installation..."
-    
-    # Download
-    download_and_install
-    
-    # Install
-    install_app
+
+    if [ ! -d "$INSTALL_DIR" ]; then
+        print_error "Lieutenant-Underwood is not installed. Run without --upgrade."
+        exit 1
+    fi
+
+    print_info "Stopping any running instance..."
+    pkill -f "lmstudio_tui.launcher" 2>/dev/null || true
+
+    download_source
+
+    print_info "Updating application files..."
+    rm -rf "$INSTALL_DIR/src"
+    cp -r "$SOURCE_DIR/src" "$INSTALL_DIR/"
+    cp "$SOURCE_DIR/pyproject.toml" "$INSTALL_DIR/"
+    [ -f "$SOURCE_DIR/README.md" ]    && cp "$SOURCE_DIR/README.md"    "$INSTALL_DIR/"
+    [ -f "$SOURCE_DIR/CHANGELOG.md" ] && cp "$SOURCE_DIR/CHANGELOG.md" "$INSTALL_DIR/"
+
+    print_info "Updating Python dependencies..."
+    "$VENV_DIR/bin/pip" install --upgrade "$INSTALL_DIR" -q
+
+    verify_installation
+    create_launcher   # Recreate launcher in case venv path changed
+
+    echo ""
+    print_success "Upgrade complete! Run: lmstui"
+    echo ""
+}
+
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+do_uninstall() {
+    check_sudo
+    if [ -f "$INSTALL_DIR/uninstall.sh" ]; then
+        exec bash "$INSTALL_DIR/uninstall.sh"
+    else
+        # Uninstaller script not present — do it inline
+        print_warning "Uninstaller script not found — removing manually..."
+        pkill -f "lmstudio_tui.launcher" 2>/dev/null || true
+        [ -d "$INSTALL_DIR" ] && rm -rf "$INSTALL_DIR"
+        [ -f "$BIN_DIR/lmstui" ] && rm -f "$BIN_DIR/lmstui"
+        print_success "Uninstalled"
+    fi
+}
+
+# ── Main fresh install ────────────────────────────────────────────────────────
+do_install() {
+    print_banner
+    check_sudo
+    check_python
+
+    if [ -d "$INSTALL_DIR" ]; then
+        print_warning "Existing installation found at $INSTALL_DIR"
+        read -p "Remove and reinstall? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Tip: use --upgrade to update in place."
+            exit 0
+        fi
+        pkill -f "lmstudio_tui.launcher" 2>/dev/null || true
+        rm -rf "$INSTALL_DIR"
+    fi
+
+    download_source
+    copy_app_files
+    create_venv
     install_python_deps
     verify_installation
     create_launcher
     setup_user_config
     create_uninstaller
-    
-    # Cleanup
-    cd /
-    rm -rf "$TEMP_DIR"
-    
+
     print_completion
 }
 
-# Handle uninstall argument
-if [ "$1" == "--uninstall" ]; then
-    if [ -f "$INSTALL_DIR/uninstall.sh" ]; then
-        exec "$INSTALL_DIR/uninstall.sh"
-    else
-        print_error "Lieutenant-Underwood is not installed"
+# ── Entry point ───────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --upgrade)   do_upgrade ;;
+    --uninstall) do_uninstall ;;
+    "")          do_install ;;
+    *)
+        echo "Usage: sudo bash install.sh [--upgrade|--uninstall]"
         exit 1
-    fi
-fi
-
-# Run main installation
-main
+        ;;
+esac

@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from lmstudio_tui import __version__
+
 # TOML support with fallback
 try:
     import tomllib  # Python 3.11+
@@ -310,14 +312,15 @@ def main() -> int:
     parser.add_argument("--host", default=None, help="LM Studio host")
     parser.add_argument("--port", type=int, default=None, help="LM Studio port")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.2.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.4.0")
     
     args = parser.parse_args()
     
     print()
+    _title = f"Lieutenant-Underwood v{__version__}"
     print(f"{Colors.BLUE}╔════════════════════════════════════════════════════════╗{Colors.NC}")
-    print(f"{Colors.BLUE}║{Colors.NC}        Lieutenant-Underwood v0.2.0                    {Colors.BLUE}║{Colors.NC}")
-    print(f"{Colors.BLUE}║{Colors.NC}           LM Studio Terminal User Interface            {Colors.BLUE}║{Colors.NC}")
+    print(f"{Colors.BLUE}║{Colors.NC}  {_title:<54}{Colors.BLUE}║{Colors.NC}")
+    print(f"{Colors.BLUE}║{Colors.NC}  LM Studio Terminal User Interface                    {Colors.BLUE}║{Colors.NC}")
     print(f"{Colors.BLUE}╚════════════════════════════════════════════════════════╝{Colors.NC}")
     print()
     

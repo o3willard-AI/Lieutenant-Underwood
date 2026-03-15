@@ -9,6 +9,7 @@ from textual.widgets import Footer, Static
 from lmstudio_tui import __version__
 
 from lmstudio_tui.widgets.ascii_logo import AsciiLogo
+from lmstudio_tui.widgets.cpu_panel import CPUPanel
 from lmstudio_tui.widgets.gpu_panel import GPUPanel
 from lmstudio_tui.widgets.models_panel import ModelsPanel
 from lmstudio_tui.widgets.chat_panel import ChatPanel
@@ -36,11 +37,15 @@ class MainScreen(Screen):
     }
     #gpu-panel {
         width: 100%;
-        height: 60%;
+        height: auto;
+    }
+    #cpu-panel {
+        width: 100%;
+        height: auto;
     }
     #chat-panel {
         width: 100%;
-        height: 40%;
+        height: 1fr;
     }
     #models-panel {
         width: 60%;
@@ -61,6 +66,7 @@ class MainScreen(Screen):
             Horizontal(
                 Vertical(
                     GPUPanel(id="gpu-panel"),
+                    CPUPanel(id="cpu-panel"),
                     ChatPanel(id="chat-panel"),
                     id="left-column"
                 ),

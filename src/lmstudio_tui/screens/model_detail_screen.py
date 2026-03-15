@@ -141,12 +141,10 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     yield Static("Context:", classes="label")
                     yield Static(context_text, classes="value")
 
-                kv_label = {"f16": "F16", "q8_0": "Q8_0", "q4_0": "Q4_0"}.get(
-                    cfg.kv_cache_quantization, cfg.kv_cache_quantization.upper()
-                )
+                ttl_text = "Off" if not cfg.ttl else f"{cfg.ttl}s auto-unload"
                 with Horizontal(classes="info-row"):
-                    yield Static("KV Cache:", classes="label")
-                    yield Static(kv_label, classes="value")
+                    yield Static("TTL:", classes="label")
+                    yield Static(ttl_text, classes="value")
 
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"
@@ -281,11 +279,20 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             else:
                 context_length = config.context_length
 
-            await client.load_model(
-                self.model_id,
-                context_length=context_length,
-                kv_cache_quantization=config.kv_cache_quantization,
-            )
+            cli = self._store.lms_cli
+            if cli:
+                await cli.load_model(
+                    model_key=self.model_id,
+                    context_length=context_length,
+                    gpu_offload_percent=config.gpu_offload_percent,
+                    ttl=config.ttl,
+                )
+            else:
+                await client.load_model(
+                    self.model_id,
+                    context_length=context_length,
+                    kv_cache_quantization=config.kv_cache_quantization,
+                )
 
             # Dismiss immediately — load succeeded.
             # Refresh model list as best-effort; a timeout here must not

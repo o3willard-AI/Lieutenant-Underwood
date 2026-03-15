@@ -64,6 +64,7 @@ class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     gpu: GPUConfig = field(default_factory=GPUConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
+    lms_cli_path: Optional[str] = None  # Override path to lms binary
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "AppConfig":
@@ -105,6 +106,12 @@ class AppConfig:
         # Chat config (direct mapping)
         if "chat" in raw_data:
             data["chat"] = raw_data["chat"]
+
+        # App-level config
+        if "app" in raw_data:
+            app_data = raw_data["app"]
+            if "lms_cli_path" in app_data:
+                data["lms_cli_path"] = app_data["lms_cli_path"]
 
         # GPU config with nested alert thresholds
         if "gpu" in raw_data or "alerts" in raw_data:
@@ -170,15 +177,18 @@ class AppConfig:
             "chat": {
                 "system_prompt": self.chat.system_prompt,
             },
-            "alerts": {
-                "temperature": {
-                    "warning": self.gpu.alert_thresholds.temp_warning,
-                    "critical": self.gpu.alert_thresholds.temp_critical,
-                },
-                "vram": {
-                    "warning": self.gpu.alert_thresholds.vram_warning,
-                    "critical": self.gpu.alert_thresholds.vram_critical,
-                },
+        }
+        if self.lms_cli_path is not None:
+            data["app"] = {"lms_cli_path": self.lms_cli_path}
+
+        data["alerts"] = {
+            "temperature": {
+                "warning": self.gpu.alert_thresholds.temp_warning,
+                "critical": self.gpu.alert_thresholds.temp_critical,
+            },
+            "vram": {
+                "warning": self.gpu.alert_thresholds.vram_warning,
+                "critical": self.gpu.alert_thresholds.vram_critical,
             },
         }
 

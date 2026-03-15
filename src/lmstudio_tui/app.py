@@ -4,6 +4,7 @@ import asyncio
 import logging
 import logging.handlers
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -59,6 +60,7 @@ class LMStudioApp(App):
         ("tab", "focus_next", "Next Panel"),
         ("l", "load_model", "Load Model"),
         ("u", "unload_model", "Unload Model"),
+        ("d", "browse_models", "Browse Models"),
     ]
 
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None, *args, **kwargs):
@@ -86,6 +88,12 @@ class LMStudioApp(App):
         """App startup - initialize store and start background workers."""
         self.push_screen(MainScreen())
 
+        # Initialize lms CLI (hybrid load path)
+        if self.store.initialize_lms_cli():
+            logger.info("lms CLI found — using hybrid load path")
+        else:
+            logger.warning("lms CLI not found — using REST API fallback for model loading")
+
         # Start GPU monitoring worker if GPU available
         if self.store.start_gpu_monitoring():
             self.run_worker(self._gpu_update_worker(), name="gpu_updater")
@@ -95,8 +103,17 @@ class LMStudioApp(App):
                 severity="warning",
             )
 
+        # Start CPU monitoring worker
+        if self.store.start_cpu_monitoring():
+            self.run_worker(self._cpu_update_worker(), name="cpu_updater")
+        else:
+            logger.warning("CPU monitoring not available")
+
         # Start models update worker (also handles connection health)
         self.run_worker(self._models_update_worker(), name="models_updater")
+
+        # Start download monitor (polls detached lms-get processes)
+        self.run_worker(self._download_monitor_worker(), name="download_monitor")
 
     async def _gpu_update_worker(self) -> None:
         """Update GPU metrics every config.gpu.update_frequency seconds.
@@ -195,6 +212,97 @@ class LMStudioApp(App):
             except asyncio.TimeoutError:
                 pass
 
+    async def _cpu_update_worker(self) -> None:
+        """Update CPU and RAM metrics every config.gpu.update_frequency seconds."""
+        while not self._shutdown_event.is_set():
+            try:
+                monitor = self.store.cpu_monitor
+                if monitor is None:
+                    break
+                metrics = monitor.get_metrics()
+                self.store.cpu_metrics.value = metrics
+                self.store.cpu_error.value = None
+            except Exception as e:
+                self.store.cpu_error.value = str(e)
+
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self.store.config.value.gpu.update_frequency,
+                )
+            except asyncio.TimeoutError:
+                pass
+
+    async def _download_monitor_worker(self) -> None:
+        """Poll active detached downloads every 2 s and update store.
+
+        Detects process completion, sends notifications, and refreshes
+        the model list once a download finishes.
+        """
+        from lmstudio_tui.cli.lms_cli import DownloadState, LmsCli
+        from lmstudio_tui.store import DownloadProgress
+
+        while not self._shutdown_event.is_set():
+            try:
+                state = LmsCli.load_download_state()
+                if state:
+                    running = LmsCli.is_download_running(state.pid)
+                    progress_line = LmsCli.read_download_progress()
+                    elapsed = time.time() - state.start_time
+
+                    if running:
+                        self.store.download_progress.value = DownloadProgress(
+                            model_key=state.model_key,
+                            progress_line=progress_line or "Starting…",
+                            elapsed_seconds=elapsed,
+                            is_running=True,
+                        )
+                    else:
+                        # Process exited — determine success vs failure from log
+                        low = (progress_line or "").lower()
+                        is_error = any(w in low for w in ("error", "failed", "cannot", "invalid"))
+                        self.store.download_progress.value = DownloadProgress(
+                            model_key=state.model_key,
+                            progress_line=progress_line or "Download complete",
+                            elapsed_seconds=elapsed,
+                            is_running=False,
+                            error=progress_line if is_error else None,
+                        )
+                        LmsCli.clear_download_state()
+
+                        if is_error:
+                            self.notify(
+                                f"Download failed: {progress_line}",
+                                severity="error",
+                            )
+                        else:
+                            self.notify(
+                                f"✓ Download complete: {state.model_key}",
+                                severity="information",
+                            )
+
+                        # Refresh model list after completion
+                        try:
+                            client = self.store.api_client
+                            if client:
+                                models = await client.get_models()
+                                self.store.models.value = models
+                        except Exception:
+                            pass
+
+                else:
+                    # No active download — clear UI if we had one
+                    if self.store.download_progress.value is not None:
+                        self.store.download_progress.value = None
+
+            except Exception as e:
+                logger.error(f"Download monitor error: {e}")
+
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+
     def action_refresh(self) -> None:
         """Refresh all data."""
         # Trigger immediate updates by clearing error states
@@ -227,6 +335,11 @@ class LMStudioApp(App):
             logger.error(f"Error in action_load_model: {e}", exc_info=True)
             self.notify(f"Error loading model: {e}", severity="error")
 
+    def action_browse_models(self) -> None:
+        """Open the model browser screen."""
+        from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
+        self.push_screen(ModelBrowserScreen())
+
     def action_unload_model(self) -> None:
         """Unload the currently selected model."""
         # Find the models panel and trigger unload action
@@ -242,6 +355,7 @@ class LMStudioApp(App):
         self._shutdown_event.set()
         await asyncio.sleep(0.1)  # Give workers a chance to observe the event
         self.store.stop_gpu_monitoring()
+        self.store.stop_cpu_monitoring()
         await self.store.disconnect_from_server()
 
 
