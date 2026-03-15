@@ -74,6 +74,10 @@ class ChatPanel(Container):
         height: 3;
         padding: 1 1;
     }
+    ChatPanel Input:focus {
+        border: none;
+        background: $surface-lighten-1;
+    }
     ChatPanel Static.hint {
         color: $text-muted;
         text-style: italic;
