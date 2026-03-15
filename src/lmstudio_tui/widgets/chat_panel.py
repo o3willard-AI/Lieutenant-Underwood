@@ -32,7 +32,7 @@ class ChatPanel(Container):
     DEFAULT_CSS = """
     ChatPanel {
         width: 100%;
-        height: auto;
+        height: 100%;
         padding: 1;
         border: solid $primary;
     }
@@ -43,7 +43,7 @@ class ChatPanel(Container):
         content-align: left middle;
     }
     ChatPanel VerticalScroll.chat-history {
-        height: 8;
+        height: 1fr;
         border: none;
         padding: 0 1;
     }
@@ -69,10 +69,10 @@ class ChatPanel(Container):
     }
     ChatPanel Input {
         width: 1fr;
-        margin-top: 1;
+        margin-top: 0;
         border: none;
-        height: 1;
-        padding: 0 1;
+        height: 3;
+        padding: 1 1;
     }
     ChatPanel Static.hint {
         color: $text-muted;

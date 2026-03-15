@@ -9,10 +9,43 @@ from pathlib import Path
 from typing import Optional
 
 from textual.app import App
+from textual.theme import ThemeProvider
 from textual.worker import get_current_worker
 
 from lmstudio_tui.screens.main_screen import MainScreen
 from lmstudio_tui.store import RootStore, get_store
+
+_DEFAULT_THEME = "textual-dark"
+
+
+class _MarkedThemeProvider(ThemeProvider):
+    """Theme picker that marks the currently active theme and the built-in default.
+
+    Overrides the bare name list from Textual's ThemeProvider so users can
+    see which theme is active and which is the original default before making
+    a selection.  A toast notification confirms every change.
+    """
+
+    @property
+    def commands(self) -> list[tuple[str, object]]:
+        current = self.app.theme
+        result = []
+        for theme in self.app.available_themes.values():
+            if theme.name == "textual-ansi":
+                continue
+            tags = []
+            if theme.name == current:
+                tags.append("current")
+            if theme.name == _DEFAULT_THEME:
+                tags.append("default")
+            label = f"{theme.name} ({', '.join(tags)})" if tags else theme.name
+
+            def _apply(name: str = theme.name) -> None:
+                self.app.theme = name
+                self.app.notify(f"Theme: {name}", timeout=2)
+
+            result.append((label, _apply))
+        return result
 
 def _setup_logging() -> logging.Logger:
     """Configure secure file-based logging with rotation.
@@ -62,6 +95,16 @@ class LMStudioApp(App):
         ("u", "unload_model", "Unload Model"),
         ("d", "browse_models", "Browse Models"),
     ]
+
+    def search_themes(self) -> None:
+        """Override Textual's theme search to mark the current and default themes."""
+        from textual.command import CommandPalette
+        self.push_screen(
+            CommandPalette(
+                providers=[_MarkedThemeProvider],
+                placeholder="Search themes… (current/default marked)",
+            )
+        )
 
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None, *args, **kwargs):
         """Initialize the application and store.
