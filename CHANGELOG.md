@@ -7,6 +7,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.4.2] - 2026-03-15
+
+### Fixed
+- **Chat input text hidden when focused** — Textual's internal `Input:focus` component CSS re-applies `border: tall` at a higher specificity than a parent-selector rule, placing box-drawing characters over the typed text. Added an explicit `ChatPanel Input:focus { border: none; background: $surface-lighten-1 }` rule to override it. The blinking cursor is now the only focus indicator; no more invisible text until tabbing away.
+
+---
+
+## [0.4.1] - 2026-03-15
+
+### Fixed
+- **Chat history area too small** — `VerticalScroll.chat-history` had a fixed `height: 8`, leaving blank space below the input and giving model replies only 8 rows. Changed to `height: 1fr` so the history expands to fill all available panel space.
+- **Chat panel not filling allocated space** — `ChatPanel` CSS had `height: auto`; changed to `height: 100%` so it correctly fills the `1fr` height assigned by the main screen layout.
+- **Chat input too thin to see typed text** — Input height raised from `1` to `3` with `padding: 1 1`; `margin-top` removed. Text is now clearly visible without needing to change focus.
+- **Theme palette: no way to identify current or default theme** — Replaced Textual's built-in `ThemeProvider` with `_MarkedThemeProvider` that appends `(current)` to the active theme and `(default)` to `textual-dark` in the picker list. A toast notification confirms every theme change. Palette placeholder updated to "Search themes… (current/default marked)".
+
+---
+
 ## [0.4.0] - 2026-03-14
 
 ### Added
