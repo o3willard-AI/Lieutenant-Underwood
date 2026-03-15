@@ -18,7 +18,7 @@ VENV_DIR="$INSTALL_DIR/venv"
 BIN_DIR="/usr/local/bin"
 REPO_URL="https://github.com/o3willard-AI/Lieutenant-Underwood"
 MIN_PYTHON_VERSION="3.9"
-LTU_VERSION="0.4.1"
+LTU_VERSION="0.4.2"
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'

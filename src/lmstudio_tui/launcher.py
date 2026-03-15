@@ -312,7 +312,7 @@ def main() -> int:
     parser.add_argument("--host", default=None, help="LM Studio host")
     parser.add_argument("--port", type=int, default=None, help="LM Studio port")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--version", action="version", version="%(prog)s 0.4.1")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.4.2")
     
     args = parser.parse_args()
     
