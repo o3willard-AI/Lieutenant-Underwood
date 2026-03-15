@@ -7,7 +7,7 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 
 ```
 ╔════════════════════════════════════════════════════════╗
-║  Lieutenant-Underwood v0.4.0                           ║
+║  Lieutenant-Underwood v0.4.2                           ║
 ║  LM Studio Terminal User Interface                     ║
 ╚════════════════════════════════════════════════════════╝
 ```
@@ -29,7 +29,7 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 
 ## Screenshot
 
-![Lieutenant-Underwood v0.4.0 — live on a 4× RTX 3060 server](screenshots/dashboard.png)
+![Lieutenant-Underwood v0.4.2 — live on a 4× RTX 3060 server](screenshots/dashboard.png)
 
 *Live dashboard: 4× NVIDIA RTX 3060 (48 GB VRAM total) · Qwen3 Coder 30B loaded · lms CLI active*
 
@@ -161,6 +161,14 @@ On launch, the TUI checks Python version, verifies LM Studio is installed, then 
 | `/add <local_path>` | Import a local model file into LM Studio |
 | `/clear` | Clear chat history |
 | `/help` | Show available commands |
+
+### Theme Switcher
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+P` | Open command palette |
+
+Type **Theme** in the palette then select from the full list. The current theme is marked **(current)** and the built-in default is marked **(default)**. A toast notification confirms every change. 20 themes are available including `nord`, `dracula`, `gruvbox`, `catppuccin-mocha`, `tokyo-night`, and more.
 
 ---
 
