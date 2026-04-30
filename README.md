@@ -20,8 +20,8 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 - **CPU STATUS** — Live system overview: CPU model, free RAM, LM Studio RAM usage, CPU utilization, LM Studio CPU %
 - **MODELS Panel** — Browse, configure, load, and unload models with full control over GPU offload %, context length, and TTL auto-unload
 - **CHAT Panel** — Send messages to a loaded model with live streaming response; slash commands for quick model switching
-- **Model Browser** — Search and download models from Hugging Face directly within the TUI (powered by `lms get`)
-- **Download Monitor** — Live download progress display with cancel support; downloads survive TUI restarts
+- **Model Browser** — Two-step search and download from Hugging Face: browse repos by downloads/stars/date, then select a specific quantization variant (Q4_K_M, Q8_0, etc.) with file sizes shown. Downloads stream directly from huggingface.co — works for any public GGUF model, not just the LM Studio catalog.
+- **Download Monitor** — Live progress display with bytes received, speed (MB/s), and cancel support. Downloaded files are placed in `~/.lmstudio/models/` where LM Studio picks them up automatically.
 - **Hybrid Load Path** — Uses the `lms` CLI for model loading when available (unlocks GPU layer offload and TTL); falls back to REST API automatically
 - **VRAM Estimation** — Real VRAM estimates via `lms load --estimate-only` before committing to a load
 
@@ -54,6 +54,8 @@ All Python dependencies (Textual, httpx, psutil, pynvml, tomli, dacite, etc.) ar
 
 ## Installation
 
+### Fresh Install
+
 ```bash
 # Download the installer
 curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
@@ -70,23 +72,58 @@ The installer will:
 5. Create the `/usr/local/bin/lmstui` launcher
 6. Write a default config to `~/.config/lmstudio-tui/config.toml`
 
-### Upgrade
+After installation, launch with:
 
 ```bash
+lmstui
+```
+
+---
+
+### Upgrade
+
+The install script must be re-downloaded before upgrading, as it is not stored in `/opt/lieutenant-underwood/` after a fresh install.
+
+```bash
+# Re-download the latest installer
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
+
+# Upgrade in place (requires sudo)
 sudo bash install.sh --upgrade
 ```
 
-Stops any running instance, downloads the latest release, updates source files, and upgrades pip packages in place. User config is preserved.
+This will:
+- Stop any running `lmstui` process
+- Download the latest source from GitHub
+- Replace the application files in `/opt/lieutenant-underwood/src/`
+- Run `pip install --upgrade` inside the venv
+- Recreate the `/usr/local/bin/lmstui` launcher
+
+Your config at `~/.config/lmstudio-tui/config.toml` is **not touched**.
+
+---
 
 ### Uninstall
 
+The install script is the most reliable uninstall method. Re-download it if you no longer have it:
+
 ```bash
-sudo /opt/lieutenant-underwood/uninstall.sh
-# or
+# Re-download the installer
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
+
+# Uninstall (requires sudo)
 sudo bash install.sh --uninstall
 ```
 
-Removes `/opt/lieutenant-underwood/` and `/usr/local/bin/lmstui`. User config at `~/.config/lmstudio-tui/` is **preserved** — remove it manually if desired:
+If the installer placed an `uninstall.sh` in `/opt/lieutenant-underwood/` (present on some installs), you can also run it directly:
+
+```bash
+sudo bash /opt/lieutenant-underwood/uninstall.sh
+```
+
+Either method removes `/opt/lieutenant-underwood/` and `/usr/local/bin/lmstui`.
+
+User config at `~/.config/lmstudio-tui/` is **preserved**. Remove it manually if desired:
 
 ```bash
 rm -rf ~/.config/lmstudio-tui/
@@ -151,6 +188,17 @@ On launch, the TUI checks Python version, verifies LM Studio is installed, then 
 | `u` | Unload selected model |
 | `r` | Refresh model list |
 | `d` | Open model browser (Hugging Face search & download) |
+
+### Model Browser
+
+| Key / Button | Action |
+|---|---|
+| `↑` / `↓` | Navigate repo list or file list |
+| `⬇ Select File` | Open quantization picker for selected repo |
+| `Enter` | Same as Select File (in browse mode) |
+| `⬇ Download` | Start download of selected `.gguf` file |
+| `← Back` / `Esc` | Return to repo list from file picker |
+| `Close` / `Esc` | Close the browser |
 
 ### Chat Panel
 
@@ -252,13 +300,14 @@ src/lmstudio_tui/
 ├── __init__.py          # Version
 ├── app.py               # Textual App root, background workers
 ├── config.py            # AppConfig dataclass + TOML load/save
+├── downloader.py        # Direct HF streaming downloader (bypasses lms get)
 ├── launcher.py          # lmstui entry point with pre-flight checks
 ├── store.py             # Singleton RootStore with ReactiveVar state
 ├── utils.py             # format_size(), extract_quantization()
 ├── api/
 │   └── client.py        # httpx async client for LM Studio REST API
 ├── cli/
-│   └── lms_cli.py       # lms subprocess wrapper (load, estimate, download)
+│   └── lms_cli.py       # lms subprocess wrapper (load and estimate only)
 ├── cpu/
 │   └── monitor.py       # CPUMonitor using psutil
 ├── gpu/
@@ -266,13 +315,13 @@ src/lmstudio_tui/
 ├── screens/
 │   ├── main_screen.py          # Main dashboard layout
 │   ├── model_detail_screen.py  # Per-model detail and load screen
-│   └── model_browser_screen.py # Hugging Face model search/download
+│   └── model_browser_screen.py # Hugging Face model browser (two-step: browse → file picker)
 └── widgets/
     ├── ascii_logo.py    # Banner logo
     ├── chat_panel.py    # Streaming chat interface
     ├── cpu_panel.py     # CPU/RAM status table
     ├── gpu_panel.py     # GPU metrics table
-    └── models_panel.py  # Model list + load configuration
+    └── models_panel.py  # Model list + load configuration + download status
 ```
 
 ---
