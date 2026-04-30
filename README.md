@@ -29,7 +29,7 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 
 ## Screenshot
 
-![Lieutenant-Underwood v0.4.2 — live on a 4× RTX 3060 server](screenshots/dashboard.png)
+![Lieutenant-Underwood v0.5.0 — live on a 4× RTX 3060 server](screenshots/dashboard.png)
 
 *Live dashboard: 4× NVIDIA RTX 3060 (48 GB VRAM total) · Qwen3 Coder 30B loaded · lms CLI active*
 

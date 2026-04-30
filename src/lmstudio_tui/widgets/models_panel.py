@@ -119,6 +119,7 @@ class ModelsPanel(Container):
         color: $secondary;
         height: 1;
         margin-top: 1;
+        width: 100%;
     }
     ModelsPanel Static.config-label {
         color: $text;
@@ -177,6 +178,7 @@ class ModelsPanel(Container):
         color: $warning;
         text-style: bold;
         height: 1;
+        width: 100%;
     }
     ModelsPanel Static.download-model-name {
         color: $text-muted;
@@ -218,6 +220,7 @@ class ModelsPanel(Container):
         self._table: Optional[DataTable] = None
         self._model_ids: list[str] = []
         self._config_container: Optional[Container] = None
+        self._config_title: Optional[Static] = None
         self._loading_static: Optional[Static] = None
         self._offload_select: Optional[Select] = None
         self._context_select: Optional[Select] = None
@@ -226,7 +229,6 @@ class ModelsPanel(Container):
         self._calculate_btn: Optional[Button] = None
         self._animation_task: Optional[asyncio.Task] = None
         self._cli_status_widget: Optional[Static] = None
-        self._config_title: Optional[Static] = None
         # Download status widgets
         self._download_status_container: Optional[Container] = None
         self._download_model_widget: Optional[Static] = None
@@ -254,7 +256,7 @@ class ModelsPanel(Container):
         yield self._table
         
         # Configuration frame for selected model
-        self._config_title = Static("⚙️  LOAD CONFIGURATION", classes="config-title")
+        self._config_title = Static("⚙️  LOAD CONFIGURATION", classes="config-title", id="load-config-title")
         yield self._config_title
         self._config_container = Container()
         with self._config_container:
