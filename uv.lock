@@ -389,7 +389,7 @@ wheels = [
 
 [[package]]
 name = "lmstudio-tui"
-version = "0.2.0"
+version = "0.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "dacite" },

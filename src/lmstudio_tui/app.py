@@ -4,7 +4,6 @@ import asyncio
 import logging
 import logging.handlers
 import sys
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -277,54 +276,33 @@ class LMStudioApp(App):
                 pass
 
     async def _download_monitor_worker(self) -> None:
-        """Poll active detached downloads every 2 s and update store.
+        """Watch store.download_progress for download completion and notify.
 
-        Detects process completion, sends notifications, and refreshes
-        the model list once a download finishes.
+        The download itself runs as an app-level worker (stream_download in
+        downloader.py) and pushes progress directly to the store.  This worker
+        only needs to detect the running→done transition and fire a notification
+        plus model-list refresh once per download.
         """
-        from lmstudio_tui.cli.lms_cli import DownloadState, LmsCli
-        from lmstudio_tui.store import DownloadProgress
+        last_was_running = False
 
         while not self._shutdown_event.is_set():
             try:
-                state = LmsCli.load_download_state()
-                if state:
-                    running = LmsCli.is_download_running(state.pid)
-                    progress_line = LmsCli.read_download_progress()
-                    elapsed = time.time() - state.start_time
+                prog = self.store.download_progress.value
+                is_running = prog is not None and prog.is_running
 
-                    if running:
-                        self.store.download_progress.value = DownloadProgress(
-                            model_key=state.model_key,
-                            progress_line=progress_line or "Starting…",
-                            elapsed_seconds=elapsed,
-                            is_running=True,
+                if last_was_running and not is_running and prog is not None:
+                    # Download just completed (success or error)
+                    if prog.error and prog.error != "Cancelled":
+                        self.notify(
+                            f"Download failed: {prog.error}",
+                            severity="error",
                         )
-                    else:
-                        # Process exited — determine success vs failure from log
-                        low = (progress_line or "").lower()
-                        is_error = any(w in low for w in ("error", "failed", "cannot", "invalid"))
-                        self.store.download_progress.value = DownloadProgress(
-                            model_key=state.model_key,
-                            progress_line=progress_line or "Download complete",
-                            elapsed_seconds=elapsed,
-                            is_running=False,
-                            error=progress_line if is_error else None,
+                    elif not prog.error:
+                        self.notify(
+                            f"✓ Downloaded: {prog.filename}",
+                            severity="information",
                         )
-                        LmsCli.clear_download_state()
-
-                        if is_error:
-                            self.notify(
-                                f"Download failed: {progress_line}",
-                                severity="error",
-                            )
-                        else:
-                            self.notify(
-                                f"✓ Download complete: {state.model_key}",
-                                severity="information",
-                            )
-
-                        # Refresh model list after completion
+                        # Refresh model list so LM Studio-indexed models appear
                         try:
                             client = self.store.api_client
                             if client:
@@ -333,10 +311,7 @@ class LMStudioApp(App):
                         except Exception:
                             pass
 
-                else:
-                    # No active download — clear UI if we had one
-                    if self.store.download_progress.value is not None:
-                        self.store.download_progress.value = None
+                last_was_running = is_running
 
             except Exception as e:
                 logger.error(f"Download monitor error: {e}")

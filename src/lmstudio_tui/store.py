@@ -116,13 +116,42 @@ class ReactiveVar(Generic[T]):
 
 @dataclass
 class DownloadProgress:
-    """Real-time state of an active model download for UI display."""
+    """Real-time state of an active direct HF model download."""
 
-    model_key: str
-    progress_line: str        # Last stripped log line
-    elapsed_seconds: float    # Seconds since download started
-    is_running: bool          # False once process exits
-    error: Optional[str] = None
+    model_key: str           # HF repo ID (e.g. "bartowski/Qwen2.5-7B-Instruct-GGUF")
+    filename: str            # GGUF file being downloaded
+    bytes_received: int      # Bytes written so far
+    total_bytes: int         # File size from Content-Length (0 if unknown)
+    elapsed_seconds: float   # Wall-clock seconds since download started
+    speed_bps: float         # Average bytes-per-second since start
+    is_running: bool         # False once download finishes (success or error)
+    error: Optional[str] = None   # Error message on failure; None on success
+
+    @property
+    def percent(self) -> float:
+        """Completion percentage 0–100."""
+        if self.total_bytes <= 0:
+            return 0.0
+        return min(100.0, self.bytes_received / self.total_bytes * 100)
+
+    @property
+    def progress_line(self) -> str:
+        """Formatted one-line progress summary for the download status widget."""
+        if not self.is_running and self.error:
+            return f"Error: {self.error}"
+        recv_mb = self.bytes_received / (1024 * 1024)
+        speed_mb = self.speed_bps / (1024 * 1024)
+        if not self.is_running:
+            return f"Complete — {recv_mb:.0f} MB"
+        if self.total_bytes > 0:
+            total_mb = self.total_bytes / (1024 * 1024)
+            pct = self.percent
+            filled = int(pct / 5)  # 20-char block bar
+            bar = "█" * filled + "░" * (20 - filled)
+            return f"{bar} {pct:.0f}%  {recv_mb:.0f}/{total_mb:.0f} MB  @  {speed_mb:.1f} MB/s"
+        if self.bytes_received > 0:
+            return f"{recv_mb:.1f} MB  @  {speed_mb:.1f} MB/s"
+        return "Connecting…"
 
 
 @dataclass

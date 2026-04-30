@@ -179,11 +179,17 @@ class ModelsPanel(Container):
         height: 1;
     }
     ModelsPanel Static.download-model-name {
+        color: $text-muted;
+        text-style: italic;
+        height: 1;
+    }
+    ModelsPanel Static.download-file-name {
         color: $text;
+        text-style: bold;
         height: 1;
     }
     ModelsPanel Static.download-progress-line {
-        color: $text-muted;
+        color: $success;
         height: 1;
     }
     ModelsPanel Static.download-elapsed {
@@ -224,6 +230,7 @@ class ModelsPanel(Container):
         # Download status widgets
         self._download_status_container: Optional[Container] = None
         self._download_model_widget: Optional[Static] = None
+        self._download_file_widget: Optional[Static] = None
         self._download_progress_widget: Optional[Static] = None
         self._download_elapsed_widget: Optional[Static] = None
         self._download_cancel_btn: Optional[Button] = None
@@ -298,6 +305,8 @@ class ModelsPanel(Container):
             yield Static("⬇ DOWNLOADING", classes="download-title")
             self._download_model_widget = Static("", classes="download-model-name")
             yield self._download_model_widget
+            self._download_file_widget = Static("", classes="download-file-name")
+            yield self._download_file_widget
             self._download_progress_widget = Static("", classes="download-progress-line")
             yield self._download_progress_widget
             self._download_elapsed_widget = Static("", classes="download-elapsed")
@@ -836,10 +845,12 @@ class ModelsPanel(Container):
                     severity="warning",
                 )
         elif event.button.id == "cancel_download_btn":
-            from lmstudio_tui.cli.lms_cli import LmsCli
             prog = self._store.download_progress.value
             if prog and prog.is_running:
-                LmsCli.cancel_download()
+                for worker in self.app.workers:
+                    if worker.name == "hf_downloader":
+                        worker.cancel()
+                        break
                 self.app.notify("Download cancelled", severity="warning")
             self._store.download_progress.value = None
 
@@ -881,17 +892,17 @@ class ModelsPanel(Container):
         self._download_status_container.display = True
 
         if self._download_model_widget:
-            model_display = progress.model_key
-            if len(model_display) > 55:
-                model_display = model_display[:52] + "…"
-            self._download_model_widget.update(model_display)
+            repo = progress.model_key
+            self._download_model_widget.update(repo if len(repo) <= 55 else repo[:52] + "…")
+
+        if self._download_file_widget:
+            fname = progress.filename
+            self._download_file_widget.update(fname if len(fname) <= 55 else fname[:52] + "…")
 
         if self._download_progress_widget:
-            progress_text = progress.progress_line
-            if len(progress_text) > 60:
-                progress_text = progress_text[:57] + "…"
+            line = progress.progress_line
             icon = "⬇" if progress.is_running else ("❌" if progress.error else "✓")
-            self._download_progress_widget.update(f"{icon} {progress_text}")
+            self._download_progress_widget.update(f"{icon} {line}")
 
         if self._download_elapsed_widget:
             elapsed = int(progress.elapsed_seconds)
