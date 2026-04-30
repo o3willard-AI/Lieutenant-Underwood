@@ -7,7 +7,7 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 
 ```
 ╔════════════════════════════════════════════════════════╗
-║  Lieutenant-Underwood v0.4.2                           ║
+║  Lieutenant-Underwood v0.5.0                           ║
 ║  LM Studio Terminal User Interface                     ║
 ╚════════════════════════════════════════════════════════╝
 ```

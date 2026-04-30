@@ -7,6 +7,25 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.5.0] - 2026-04-30
+
+### Added
+- **Direct HF streaming downloader** (`src/lmstudio_tui/downloader.py`) — downloads GGUF models directly from huggingface.co via httpx streaming; no longer depends on `lms get` or the LM Studio catalog. Works for any public GGUF model from any publisher (bartowski, TheBloke, unsloth, etc.).
+- `detect_lmstudio_models_dir()` — auto-detects `~/.lmstudio/models/`, creates it if absent.
+- `fetch_gguf_files(repo_id)` — queries the HF API (`?blobs=true`) and returns all `.gguf` variants with file sizes, sorted by name.
+- `stream_download(repo_id, filename, dest_dir, store)` — async httpx streaming download; updates `store.download_progress` every 500 ms with real bytes received, total bytes, elapsed time, and speed (MB/s); runs as an **app-level worker** (survives modal screen dismissal); cleans up partial files on cancel or error.
+- **Two-step Model Browser flow** — BROWSE mode (search/sort HF repos) → PICKING mode (file picker listing all `.gguf` variants with sizes); `Esc` returns from PICKING to BROWSE without losing the search results.
+
+### Changed
+- `DownloadProgress` in `store.py` redesigned with real-time fields: `model_key`, `filename`, `bytes_received`, `total_bytes`, `elapsed_seconds`, `speed_bps`, `is_running`, `error`. `progress_line` is now a computed property rendering a 20-char Unicode block bar: `████████░░░░░░░░░░░░ 40%  1/3 GB  @  45.2 MB/s`.
+- `models_panel.py` — added `filename` display widget; Cancel now walks `self.app.workers` by name (`"hf_downloader"`) and calls `worker.cancel()`.
+- `app.py` — `_download_monitor_worker()` simplified from ~60 lines of subprocess/PID/log-file polling to ~30 lines watching `is_running` transitions.
+
+### Removed
+- `lms get` subprocess download path removed entirely from `lms_cli.py`: `DownloadState`, `download_model()`, `start_download_detached()`, and all state-file machinery (`/tmp/ltu-download-state.json`, `/tmp/ltu-download.log`).
+
+---
+
 ## [0.4.2] - 2026-03-15
 
 ### Fixed
