@@ -383,7 +383,7 @@ class ModelBrowserScreen(ModalScreen[Optional[str]]):
 
         api_sort, api_handles = HF_SORT_MAP.get(sort, ("downloads", True))
         params = {
-            "library": "gguf",
+            "filter": "gguf",
             "sort": api_sort,
             "direction": "-1",
             "limit": "50",
