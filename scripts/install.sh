@@ -18,7 +18,7 @@ VENV_DIR="$INSTALL_DIR/venv"
 BIN_DIR="/usr/local/bin"
 REPO_URL="https://github.com/o3willard-AI/Lieutenant-Underwood"
 MIN_PYTHON_VERSION="3.9"
-LTU_VERSION="0.6.0"
+LTU_VERSION=""  # set from pyproject.toml after source is downloaded
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -35,7 +35,7 @@ print_warning() { echo -e "${YELLOW}⚠ $1${NC}"; }
 print_banner() {
     echo ""
     echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║${NC}  Lieutenant-Underwood v${LTU_VERSION} Installer              ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}  Lieutenant-Underwood Installer                        ${BLUE}║${NC}"
     echo -e "${BLUE}║${NC}  LM Studio Terminal User Interface                    ${BLUE}║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -98,7 +98,8 @@ download_source() {
         SOURCE_DIR="$TEMP_DIR/ltu"
     fi
 
-    print_success "Download complete"
+    LTU_VERSION=$(grep '^version' "$SOURCE_DIR/pyproject.toml" | head -1 | cut -d '"' -f 2)
+    print_success "Download complete (v${LTU_VERSION})"
 }
 
 # ── Install steps ─────────────────────────────────────────────────────────────

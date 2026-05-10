@@ -1,3 +1,8 @@
 """LM Studio TUI - Terminal UI for LM Studio headless server."""
 
-__version__ = "0.6.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("lmstudio-tui")
+except PackageNotFoundError:
+    __version__ = "unknown"
