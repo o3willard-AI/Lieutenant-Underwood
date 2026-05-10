@@ -164,12 +164,7 @@ class ModelsPanel(Container):
     ModelsPanel Static.vram-estimate.red {
         color: $error;
     }
-    ModelsPanel Button.calculate-btn {
-        width: auto;
-        min-width: 15;
-        margin-top: 1;
-        margin-bottom: 0;
-    }
+
     ModelsPanel Container.download-status {
         height: auto;
         border: solid $warning;
@@ -227,8 +222,9 @@ class ModelsPanel(Container):
         self._offload_select: Optional[Select] = None
         self._context_select: Optional[Select] = None
         self._ttl_select: Optional[Select] = None
-        self._vram_estimate_widget: Optional[Static] = None
-        self._calculate_btn: Optional[Button] = None
+        self._vram_low_widget: Optional[Static] = None
+        self._vram_mid_widget: Optional[Static] = None
+        self._vram_high_widget: Optional[Static] = None
         self._animation_task: Optional[asyncio.Task] = None
         self._cli_status_widget: Optional[Static] = None
         # Download status widgets
@@ -292,15 +288,15 @@ class ModelsPanel(Container):
             )
             yield self._ttl_select
 
-            # Calculate button — label updated in on_mount once CLI status is known
-            self._calculate_btn = Button("🧮 CALCULATE", id="calculate_btn", classes="calculate-btn")
-            yield self._calculate_btn
 
-        
-        # VRAM/RAM Estimate row
+        # VRAM/RAM Estimate rows (auto-updates on context/offload change)
         yield Static("💾 MEMORY ESTIMATE", classes="config-title")
-        self._vram_estimate_widget = Static("Press CALCULATE to see estimate", classes="vram-estimate")
-        yield self._vram_estimate_widget
+        self._vram_low_widget = Static("Select a model to see estimate", classes="vram-estimate")
+        self._vram_mid_widget = Static("", classes="vram-estimate")
+        self._vram_high_widget = Static("", classes="vram-estimate")
+        yield self._vram_low_widget
+        yield self._vram_mid_widget
+        yield self._vram_high_widget
         
         yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
 
@@ -352,17 +348,13 @@ class ModelsPanel(Container):
         if initial_loading:
             self._loading = initial_loading
         
-        # Set CLI status indicator and CALCULATE button label
+        # Set CLI status indicator
         if self._store.lms_cli:
             if self._cli_status_widget:
                 self._cli_status_widget.update("⚡ lms CLI: active")
-            if self._calculate_btn:
-                self._calculate_btn.label = "🧮 GET lms ESTIMATE"
         else:
             if self._cli_status_widget:
                 self._cli_status_widget.update("⚠ lms CLI not found — REST fallback active")
-            if self._calculate_btn:
-                self._calculate_btn.label = "🧮 CALCULATE (approx)"
 
         # Hide download status section until a download is active
         if self._download_status_container:
@@ -551,52 +543,60 @@ class ModelsPanel(Container):
         return (estimated_vram, estimated_ram)
     
     def _update_memory_estimate(self, model_id: Optional[str] = None) -> None:
-        """Update the VRAM/RAM estimate display."""
-        if not self._vram_estimate_widget:
+        """Update the VRAM/RAM estimate display with low/mid/high quant range."""
+        if not self._vram_low_widget:
             return
-        
+
         if model_id is None:
             model_id = self._get_selected_model_id()
-        
+
         if not model_id:
-            self._vram_estimate_widget.update("Select a model to see estimate")
-            self._vram_estimate_widget.remove_class("green", "yellow", "red")
+            self._vram_low_widget.update("Select a model to see estimate")
+            self._vram_low_widget.remove_class("green", "yellow", "red")
+            self._vram_mid_widget.update("")
+            self._vram_high_widget.update("")
             return
-        
-        # Get model info
+
         model = self._get_model_by_id(model_id)
         if not model:
-            self._vram_estimate_widget.update("Model info not available")
+            self._vram_low_widget.update("Model info not available")
+            self._vram_mid_widget.update("")
+            self._vram_high_widget.update("")
             return
-        
-        # Get current config
+
         config = self._store.get_model_config(model_id)
-        
-        # Calculate estimates
-        vram_gb, ram_gb = self._calculate_memory_estimate(
-            model=model,
-            context_length=config.context_length if config.context_length > 0 else 8192,
-            gpu_offload_percent=config.gpu_offload_percent,
-            kv_cache_quantization=config.kv_cache_quantization,
-        )
-        
-        # Get available VRAM
+        ctx = config.context_length if config.context_length > 0 else 8192
+        offload = config.gpu_offload_percent
+
         total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value) / 1024
         used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value) / 1024
         available_vram = max(0, total_vram - used_vram)
-        
-        # Format display
-        estimate_text = f"VRAM: {vram_gb:.1f}GB / Available: {available_vram:.1f}GB | RAM: {ram_gb:.1f}GB"
-        self._vram_estimate_widget.update(estimate_text)
-        
-        # Update color based on fit
-        self._vram_estimate_widget.remove_class("green", "yellow", "red")
-        if vram_gb < available_vram * 0.8:
-            self._vram_estimate_widget.add_class("green")
-        elif vram_gb <= available_vram:
-            self._vram_estimate_widget.add_class("yellow")
-        else:
-            self._vram_estimate_widget.add_class("red")
+
+        quant_rows = [
+            ("Q4_0 Low ", "q4_0", self._vram_low_widget),
+            ("Q8_0 Mid ", "q8_0", self._vram_mid_widget),
+            (" F16 High", "f16",  self._vram_high_widget),
+        ]
+
+        for label, quant, widget in quant_rows:
+            vram_gb, ram_gb = self._calculate_memory_estimate(
+                model=model,
+                context_length=ctx,
+                gpu_offload_percent=offload,
+                kv_cache_quantization=quant,
+            )
+            text = (
+                f"{label}: {vram_gb:.1f}GB VRAM / {available_vram:.1f}GB avail"
+                f" | {ram_gb:.1f}GB RAM"
+            )
+            widget.update(text)
+            widget.remove_class("green", "yellow", "red")
+            if vram_gb < available_vram * 0.8:
+                widget.add_class("green")
+            elif vram_gb <= available_vram:
+                widget.add_class("yellow")
+            else:
+                widget.add_class("red")
 
     def _rebuild_table(self, models: list[ModelInfo]) -> None:
         """Rebuild table rows based on models."""
@@ -832,23 +832,8 @@ class ModelsPanel(Container):
         self._update_memory_estimate(model_id)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses - CALCULATE updates memory estimate."""
-        if event.button.id == "calculate_btn":
-            model_id = self._get_selected_model_id()
-            if not model_id:
-                self.app.notify("No model selected", severity="warning")
-                return
-            config = self._store.get_model_config(model_id)
-            cli = self._store.lms_cli
-            if cli:
-                self.run_worker(self._calculate_via_cli(model_id, config))
-            else:
-                self._update_memory_estimate(model_id)
-                self.app.notify(
-                    "lms CLI not found — showing estimated values",
-                    severity="warning",
-                )
-        elif event.button.id == "cancel_download_btn":
+        """Handle button presses."""
+        if event.button.id == "cancel_download_btn":
             prog = self._store.download_progress.value
             if prog and prog.is_running:
                 for worker in self.app.workers:
@@ -858,31 +843,6 @@ class ModelsPanel(Container):
                 self.app.notify("Download cancelled", severity="warning")
             self._store.download_progress.value = None
 
-    async def _calculate_via_cli(self, model_id: str, config: ModelLoadConfig) -> None:
-        """Fetch a real memory estimate via `lms load --estimate-only`."""
-        try:
-            estimate = await self._store.lms_cli.estimate_memory(
-                model_key=model_id,
-                context_length=config.context_length if config.context_length > 0 else 8192,
-                gpu_offload_percent=config.gpu_offload_percent,
-            )
-            gpu_avail = sum(g.vram_total for g in self._store.gpu_metrics.value) / 1024
-            text = (
-                f"VRAM: {estimate.gpu_memory_gb:.1f}GB / "
-                f"Available: {gpu_avail:.1f}GB | {estimate.feasibility}"
-            )
-            if self._vram_estimate_widget:
-                self._vram_estimate_widget.update(text)
-                self._vram_estimate_widget.remove_class("green", "yellow", "red")
-                if estimate.gpu_memory_gb < gpu_avail * 0.8:
-                    self._vram_estimate_widget.add_class("green")
-                elif estimate.gpu_memory_gb <= gpu_avail:
-                    self._vram_estimate_widget.add_class("yellow")
-                else:
-                    self._vram_estimate_widget.add_class("red")
-        except Exception as e:
-            if self._vram_estimate_widget:
-                self._vram_estimate_widget.update(f"Estimate failed: {e}")
 
     def _on_download_progress_change(self, progress) -> None:
         """Show/update the download status section from store state."""
