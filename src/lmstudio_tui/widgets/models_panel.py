@@ -29,7 +29,9 @@ CONTEXT_OPTIONS = [
     ("16K tokens", 16384),
     ("32K tokens", 32768),
     ("65K tokens", 65536),
+    ("98K tokens", 98304),
     ("131K tokens", 131072),
+    ("192K tokens", 196608),
     ("262K tokens", 262144),
     ("Auto (Max VRAM)", -1),  # Special: calculate based on VRAM
     ("Auto (Model Max)", -2),  # Special: use model's max
