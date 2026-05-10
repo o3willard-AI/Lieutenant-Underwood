@@ -7,6 +7,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.6.0] - 2026-05-09
+
+### Added
+- **98K and 192K context length options** — fills the gap for low-VRAM configurations between the existing 65K and 131K/262K steps.
+
+### Changed
+- **Memory estimate is now automatic** — removed the CALCULATE button; estimate updates instantly whenever context length or GPU offload selection changes.
+- **Memory estimate shows a low/mid/high range** — three rows (Q4_0 low, Q8_0 mid, F16 high) replace the single estimate, reflecting the range of VRAM usage across quantizations LMStudio may select. Each row is independently color-coded green/yellow/red against available VRAM.
+
+### Fixed
+- **Model browser showed wrong models** — HF API parameter `library=gguf` was silently ignored, causing the browse list to return unrelated models (BERT, sentence-transformers, etc.) with no GGUF files. Changed to `filter=gguf` which correctly filters by the gguf tag. SELECT FILE submenu now populates properly.
+
+### Removed
+- Broken `docs` symlink pointing to a non-existent system.
+
+---
+
 ## [0.5.0] - 2026-04-30
 
 ### Added
