@@ -1,9 +1,8 @@
 """Models panel widget for LM Studio TUI.
 
-Displays a table of available models with their load status,
-size, quantization, and context length. Supports loading and
-unloading models via keybindings. Includes configuration frame
-for per-model load options.
+Displays a scrollable table of available models with their load status,
+size, and name. Pressing Enter opens the model detail/config screen.
+Download progress is shown in-panel when active.
 """
 
 from __future__ import annotations
@@ -12,62 +11,33 @@ import asyncio
 import logging
 from typing import Optional
 
-from rich.text import Text
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container
 from textual.reactive import reactive
-from textual.widgets import DataTable, Static, Input, Select, Button
+from textual.widgets import Button, DataTable, Static
 
-from lmstudio_tui.api.client import LMStudioClient, ModelInfo
-from lmstudio_tui.store import get_store, ModelLoadConfig
-from lmstudio_tui.utils import format_size, extract_quantization
+from lmstudio_tui.api.client import ModelInfo
+from lmstudio_tui.store import get_store
+from lmstudio_tui.utils import extract_quantization, format_size
 
 logger = logging.getLogger(__name__)
 
-# Context length options (truncated to ≤30 chars for compact display)
-CONTEXT_OPTIONS = [
-    ("8K tokens", 8192),
-    ("16K tokens", 16384),
-    ("32K tokens", 32768),
-    ("65K tokens", 65536),
-    ("98K tokens", 98304),
-    ("131K tokens", 131072),
-    ("192K tokens", 196608),
-    ("262K tokens", 262144),
-    ("Auto (Max VRAM)", -1),  # Special: calculate based on VRAM
-    ("Auto (Model Max)", -2),  # Special: use model's max
-]
-
-# GPU offload options
-# "Max" (-1) lets lms decide the highest safe fraction at load time.
-# Explicit percentages force that fraction regardless of available VRAM.
-# 100% is intentionally omitted: "Max" covers that case safely.
-OFFLOAD_OPTIONS = [
-    ("Max", -1),
-    ("75%", 75),
-    ("50%", 50),
-    ("25%", 25),
-    ("0% (CPU only)", 0),
-]
-
-# TTL auto-unload options
-TTL_OPTIONS = [
-    ("Off", None),
-    ("1 minute", 60),
-    ("5 minutes", 300),
-    ("30 minutes", 1800),
-    ("1 hour", 3600),
-]
-
+# Re-exported here so existing imports (e.g. tests) continue to resolve.
+# The canonical definitions live in model_detail_screen to avoid duplication.
+from lmstudio_tui.screens.model_detail_screen import (  # noqa: E402
+    CONTEXT_OPTIONS,
+    OFFLOAD_OPTIONS,
+    TTL_OPTIONS,
+)
 
 
 class ModelsPanel(Container):
-    """Panel displaying available models with load/unload controls and config.
-    
+    """Panel displaying the available-models list with download status.
+
     Features:
-    - DataTable showing Status, Name, Size, Quantization, Context
-    - Configuration frame for GPU offload, context length, KV cache quant
-    - Loading animation with dots
-    - Reactive binding to store.models and store.model_loading
+    - DataTable showing Status, Size, Model Name
+    - Loading animation while a model is being loaded
+    - Download progress section (hidden until a download is active)
+    - Enter key opens ModelDetailScreen for full config + load/unload
     """
 
     DEFAULT_CSS = """
@@ -85,7 +55,7 @@ class ModelsPanel(Container):
     }
     ModelsPanel DataTable {
         width: 100%;
-        height: 1fr;
+        height: auto;
         border: none;
     }
     ModelsPanel DataTable > .datatable--header {
@@ -116,55 +86,11 @@ class ModelsPanel(Container):
         content-align: center middle;
         height: 1;
     }
-    ModelsPanel Static.config-title {
-        text-style: bold;
-        color: $secondary;
-        height: 1;
-        margin-top: 1;
-        width: 100%;
-    }
-    ModelsPanel Static.config-label {
-        color: $text;
-        text-style: bold;
-        height: 1;
-        width: 100%;
-        margin-top: 1;
-    }
-    ModelsPanel Static.config-desc {
-        color: $text-muted;
-        height: 1;
-        width: 100%;
-        text-style: italic;
-    }
-    ModelsPanel Select {
-        width: auto;
-        min-width: 20;
-        max-width: 35;
-        margin-top: 0;
-        margin-bottom: 0;
-    }
     ModelsPanel Static.config-note {
         color: $text-muted;
         text-style: italic;
         height: 1;
-        margin-top: 1;
     }
-    ModelsPanel Static.vram-estimate {
-        height: 1;
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-    }
-    ModelsPanel Static.vram-estimate.green {
-        color: $success;
-    }
-    ModelsPanel Static.vram-estimate.yellow {
-        color: $warning;
-    }
-    ModelsPanel Static.vram-estimate.red {
-        color: $error;
-    }
-
     ModelsPanel Container.download-status {
         height: auto;
         border: solid $warning;
@@ -203,12 +129,10 @@ class ModelsPanel(Container):
     }
     """
 
-    # Reactive state tracking
     _models: reactive[list[ModelInfo]] = reactive(list)
     _error: reactive[Optional[str]] = reactive(None)
-    _loading: reactive[Optional[str]] = reactive(None)  # model_id being loaded
+    _loading: reactive[Optional[str]] = reactive(None)
     _loading_dots: reactive[int] = reactive(0)
-    _selected_model_id: reactive[Optional[str]] = reactive(None)
 
     def __init__(self, **kwargs):
         """Initialize models panel with store binding."""
@@ -216,15 +140,7 @@ class ModelsPanel(Container):
         self._store = get_store()
         self._table: Optional[DataTable] = None
         self._model_ids: list[str] = []
-        self._config_container: Optional[Container] = None
-        self._config_title: Optional[Static] = None
         self._loading_static: Optional[Static] = None
-        self._offload_select: Optional[Select] = None
-        self._context_select: Optional[Select] = None
-        self._ttl_select: Optional[Select] = None
-        self._vram_low_widget: Optional[Static] = None
-        self._vram_mid_widget: Optional[Static] = None
-        self._vram_high_widget: Optional[Static] = None
         self._animation_task: Optional[asyncio.Task] = None
         self._cli_status_widget: Optional[Static] = None
         # Download status widgets
@@ -241,66 +157,16 @@ class ModelsPanel(Container):
         self._cli_status_widget = Static("", id="cli-status", classes="config-note")
         yield self._cli_status_widget
 
-        # Loading indicator
         self._loading_static = Static("", classes="loading")
         self._loading_static.display = False
         yield self._loading_static
-        
-        # Create data table
+
         self._table = DataTable()
         self._table.add_columns("Status", "Size", "Model Name")
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
-        
-        # Configuration frame for selected model
-        self._config_title = Static("⚙️  LOAD CONFIGURATION", classes="config-title", id="load-config-title")
-        yield self._config_title
-        self._config_container = Container()
-        with self._config_container:
-            # GPU Layer Offload
-            yield Static("GPU Layer Offload", classes="config-label")
-            yield Static("Fraction of layers on GPU; partial offload allows models larger than VRAM", classes="config-desc")
-            self._offload_select = Select(
-                OFFLOAD_OPTIONS,
-                value=-1,
-                id="offload_select"
-            )
-            yield self._offload_select
-            
-            # Context Length
-            yield Static("Context Length", classes="config-label")
-            yield Static("Token window for conversation", classes="config-desc")
-            self._context_select = Select(
-                CONTEXT_OPTIONS,
-                value=8192,
-                id="context_select"
-            )
-            yield self._context_select
-            
-            # Auto-Unload (TTL)
-            yield Static("Auto-Unload (TTL)", classes="config-label")
-            yield Static("Unload model after N seconds of inactivity", classes="config-desc")
-            self._ttl_select = Select(
-                TTL_OPTIONS,
-                value=None,
-                id="ttl_select"
-            )
-            yield self._ttl_select
 
-
-        # VRAM/RAM Estimate rows (auto-updates on context/offload change)
-        yield Static("💾 MEMORY ESTIMATE", classes="config-title")
-        self._vram_low_widget = Static("Select a model to see estimate", classes="vram-estimate")
-        self._vram_mid_widget = Static("", classes="vram-estimate")
-        self._vram_high_widget = Static("", classes="vram-estimate")
-        yield self._vram_low_widget
-        yield self._vram_mid_widget
-        yield self._vram_high_widget
-        
-        yield Static("Note: Unload + reload required for changes to take effect", classes="config-note")
-
-        # Download status section (hidden until a download is active)
         with Container(classes="download-status") as self._download_status_container:
             yield Static("⬇ DOWNLOADING", classes="download-title")
             self._download_model_widget = Static("", classes="download-model-name")
@@ -312,43 +178,32 @@ class ModelsPanel(Container):
             self._download_elapsed_widget = Static("", classes="download-elapsed")
             yield self._download_elapsed_widget
             self._download_cancel_btn = Button(
-                "✗ Cancel", id="cancel_download_btn",
-                classes="cancel-download-btn", variant="error"
+                "✗ Cancel",
+                id="cancel_download_btn",
+                classes="cancel-download-btn",
+                variant="error",
             )
             yield self._download_cancel_btn
 
     def on_mount(self) -> None:
         """Mount panel and set up store watchers."""
-        # Watch for models changes
-        self._unwatch_models = self._store.models.watch(
-            self._on_models_change
-        )
-        # Watch for errors
-        self._unwatch_error = self._store.models_error.watch(
-            self._on_error_change
-        )
-        # Watch for loading state
-        self._unwatch_loading = self._store.model_loading.watch(
-            self._on_loading_change
-        )
-        self._unwatch_dots = self._store.model_loading_dots.watch(
-            self._on_dots_change
-        )
-        
-        # Initial render if data already available
+        self._unwatch_models = self._store.models.watch(self._on_models_change)
+        self._unwatch_error = self._store.models_error.watch(self._on_error_change)
+        self._unwatch_loading = self._store.model_loading.watch(self._on_loading_change)
+        self._unwatch_dots = self._store.model_loading_dots.watch(self._on_dots_change)
+
         initial_models = self._store.models.value
         if initial_models:
             self._models = initial_models
-        
+
         initial_error = self._store.models_error.value
         if initial_error:
             self._error = initial_error
-        
+
         initial_loading = self._store.model_loading.value
         if initial_loading:
             self._loading = initial_loading
-        
-        # Set CLI status indicator
+
         if self._store.lms_cli:
             if self._cli_status_widget:
                 self._cli_status_widget.update("⚡ lms CLI: active")
@@ -356,65 +211,62 @@ class ModelsPanel(Container):
             if self._cli_status_widget:
                 self._cli_status_widget.update("⚠ lms CLI not found — REST fallback active")
 
-        # Hide download status section until a download is active
         if self._download_status_container:
             self._download_status_container.display = False
 
-        # Watch for download progress changes
         self._unwatch_download = self._store.download_progress.watch(
             lambda old, new: self._on_download_progress_change(new)
         )
-        # Apply any already-active download state
         self._on_download_progress_change(self._store.download_progress.value)
 
-        # Focus the table for keyboard navigation
         if self._table:
             self._table.focus()
 
     def on_unmount(self) -> None:
         """Unmount panel and clean up watchers."""
-        if hasattr(self, '_unwatch_models'):
+        if hasattr(self, "_unwatch_models"):
             self._unwatch_models()
-        if hasattr(self, '_unwatch_error'):
+        if hasattr(self, "_unwatch_error"):
             self._unwatch_error()
-        if hasattr(self, '_unwatch_loading'):
+        if hasattr(self, "_unwatch_loading"):
             self._unwatch_loading()
-        if hasattr(self, '_unwatch_dots'):
+        if hasattr(self, "_unwatch_dots"):
             self._unwatch_dots()
-        if hasattr(self, '_unwatch_download'):
+        if hasattr(self, "_unwatch_download"):
             self._unwatch_download()
         if self._animation_task:
             self._animation_task.cancel()
 
+    # ------------------------------------------------------------------
+    # Store callbacks
+    # ------------------------------------------------------------------
+
     def _on_models_change(self, old: list[ModelInfo], new: list[ModelInfo]) -> None:
-        """Handle models change from store."""
         self._models = new
 
     def _on_error_change(self, old: Optional[str], new: Optional[str]) -> None:
-        """Handle error change from store."""
         self._error = new
 
     def _on_loading_change(self, old: Optional[str], new: Optional[str]) -> None:
-        """Handle loading state change."""
         self._loading = new
         if new:
-            # Start loading animation
             self._start_loading_animation()
         else:
-            # Stop loading animation
             self._stop_loading_animation()
 
     def _on_dots_change(self, old: int, new: int) -> None:
-        """Handle dots animation change."""
         if self._loading_static and self._loading:
             dots = "." * (new % 4)
             self._loading_static.update(f"⏳ Loading {self._loading}{dots}")
 
+    # ------------------------------------------------------------------
+    # Loading animation
+    # ------------------------------------------------------------------
+
     def _start_loading_animation(self) -> None:
-        """Start the loading animation task."""
         if self._loading_static:
             self._loading_static.display = True
-        
+
         async def animate():
             try:
                 while self._loading:
@@ -423,25 +275,26 @@ class ModelsPanel(Container):
                     self._store.model_loading_dots.value = (current + 1) % 4
             except asyncio.CancelledError:
                 pass
-        
+
         if self._animation_task:
             self._animation_task.cancel()
         self._animation_task = asyncio.create_task(animate())
 
     def _stop_loading_animation(self) -> None:
-        """Stop the loading animation."""
         if self._loading_static:
             self._loading_static.display = False
         if self._animation_task:
             self._animation_task.cancel()
             self._animation_task = None
 
+    # ------------------------------------------------------------------
+    # Reactive watchers
+    # ------------------------------------------------------------------
+
     def watch__models(self, models: list[ModelInfo]) -> None:
-        """React to models change - rebuild table rows."""
         self._rebuild_table(models)
 
     def watch__error(self, error: Optional[str]) -> None:
-        """React to error change - show error message."""
         if error and self._table:
             self._table.display = False
             for child in self.query(".error"):
@@ -452,387 +305,93 @@ class ModelsPanel(Container):
             for child in self.query(".error"):
                 child.remove()
 
-    def watch__selected_model_id(self, model_id: Optional[str]) -> None:
-        """Update config UI when selection changes."""
-        self._update_config_ui(model_id)
-        if self._config_title:
-            if model_id:
-                model = self._get_model_by_id(model_id)
-                name = (model.name or model_id) if model else model_id
-                self._config_title.update(f"⚙️  LOAD CONFIGURATION — {name}")
-            else:
-                self._config_title.update("⚙️  LOAD CONFIGURATION")
-
-    def _update_config_ui(self, model_id: Optional[str]) -> None:
-        """Update configuration UI for selected model."""
-        if not model_id or not self._offload_select or not self._context_select:
-            return
-
-        config = self._store.get_model_config(model_id)
-
-        # Update offload select
-        offload_value = config.gpu_offload_percent if config.gpu_offload_percent >= 0 else -1
-        try:
-            self._offload_select.value = offload_value
-        except Exception:
-            pass
-
-        # Update context select
-        context_value = config.context_length if config.context_length > 0 else 8192
-        try:
-            self._context_select.value = context_value
-        except Exception:
-            pass
-
-        # Update TTL select
-        if self._ttl_select:
-            try:
-                self._ttl_select.value = config.ttl
-            except Exception:
-                pass
-
-        # Update memory estimate
-        self._update_memory_estimate(model_id)
-    
-    def _calculate_memory_estimate(
-        self,
-        model: ModelInfo,
-        context_length: int,
-        gpu_offload_percent: int,
-        kv_cache_quantization: str,
-    ) -> tuple[float, float]:
-        """Estimate VRAM and RAM usage for a model load configuration.
-        
-        Args:
-            model: Model info with size_bytes
-            context_length: Context window size in tokens
-            gpu_offload_percent: GPU offload percentage (-1 for max)
-            kv_cache_quantization: KV cache quantization type (f16, q8_0, q4_0)
-            
-        Returns:
-            Tuple of (estimated_vram_gb, estimated_ram_gb)
-        """
-        # Model weights memory (in GB)
-        model_weights_gb = model.size / (1024 ** 3)
-        
-        # KV cache KB per token for the whole model (empirically derived)
-        # ~100 KB/token for a 4 GB reference model at float16; scales linearly
-        kv_kb_per_token = {
-            "f16": 100.0,
-            "q8_0": 50.0,
-            "q4_0": 25.0,
-        }.get(kv_cache_quantization, 100.0)
-
-        # Scale KV cost with model size relative to 4 GB reference
-        model_size_factor = max(1.0, model_weights_gb / 4.0)
-        kv_cache_gb = (context_length * kv_kb_per_token * model_size_factor) / (1024 ** 2)
-        
-        # Total working memory with overhead
-        overhead_gb = 0.5  # Additional overhead for activations, etc.
-        total_memory_gb = model_weights_gb + kv_cache_gb + overhead_gb
-        
-        # Split by GPU offload percentage
-        if gpu_offload_percent < 0:  # Max offload
-            vram_ratio = 1.0
-        else:
-            vram_ratio = gpu_offload_percent / 100.0
-        
-        estimated_vram = total_memory_gb * vram_ratio
-        estimated_ram = total_memory_gb * (1.0 - vram_ratio)
-        
-        return (estimated_vram, estimated_ram)
-    
-    def _update_memory_estimate(self, model_id: Optional[str] = None) -> None:
-        """Update the VRAM/RAM estimate display with low/mid/high quant range."""
-        if not self._vram_low_widget:
-            return
-
-        if model_id is None:
-            model_id = self._get_selected_model_id()
-
-        if not model_id:
-            self._vram_low_widget.update("Select a model to see estimate")
-            self._vram_low_widget.remove_class("green", "yellow", "red")
-            self._vram_mid_widget.update("")
-            self._vram_high_widget.update("")
-            return
-
-        model = self._get_model_by_id(model_id)
-        if not model:
-            self._vram_low_widget.update("Model info not available")
-            self._vram_mid_widget.update("")
-            self._vram_high_widget.update("")
-            return
-
-        config = self._store.get_model_config(model_id)
-        ctx = config.context_length if config.context_length > 0 else 8192
-        offload = config.gpu_offload_percent
-
-        total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value) / 1024
-        used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value) / 1024
-        available_vram = max(0, total_vram - used_vram)
-
-        quant_rows = [
-            ("Q4_0 Low ", "q4_0", self._vram_low_widget),
-            ("Q8_0 Mid ", "q8_0", self._vram_mid_widget),
-            (" F16 High", "f16",  self._vram_high_widget),
-        ]
-
-        for label, quant, widget in quant_rows:
-            vram_gb, ram_gb = self._calculate_memory_estimate(
-                model=model,
-                context_length=ctx,
-                gpu_offload_percent=offload,
-                kv_cache_quantization=quant,
-            )
-            text = (
-                f"{label}: {vram_gb:.1f}GB VRAM / {available_vram:.1f}GB avail"
-                f" | {ram_gb:.1f}GB RAM"
-            )
-            widget.update(text)
-            widget.remove_class("green", "yellow", "red")
-            if vram_gb < available_vram * 0.8:
-                widget.add_class("green")
-            elif vram_gb <= available_vram:
-                widget.add_class("yellow")
-            else:
-                widget.add_class("red")
+    # ------------------------------------------------------------------
+    # Table management
+    # ------------------------------------------------------------------
 
     def _rebuild_table(self, models: list[ModelInfo]) -> None:
-        """Rebuild table rows based on models."""
         if not self._table:
             return
-        
+
         self._table.clear()
         self._model_ids = []
-        
+
         if not models:
             return
-        
+
         loading_id = self._store.model_loading.value
-        
+
         for model in models:
-            # Loaded takes priority — show Loaded even if loading_id matches
             if model.loaded:
                 status = "● Loaded"
             elif model.id == loading_id:
                 status = "⏳ Loading..."
             else:
                 status = "○ Standby"
-            
-            # Format model size
+
             size_str = format_size(model.size)
-            
+
             display_name = model.name or model.id
             if len(display_name) > 30:
                 display_name = display_name[:27] + "..."
-            
+
             self._table.add_row(status, size_str, display_name)
             self._model_ids.append(model.id)
 
     def _get_selected_model_id(self) -> Optional[str]:
-        """Get the ID of the currently selected model."""
         if not self._table or self._table.cursor_row is None:
             return None
-        
         row_idx = self._table.cursor_row
         if 0 <= row_idx < len(self._model_ids):
             return self._model_ids[row_idx]
         return None
 
     def _get_model_by_id(self, model_id: str) -> Optional[ModelInfo]:
-        """Get model info by ID."""
         for model in self._store.models.value:
             if model.id == model_id:
                 return model
         return None
 
-    async def action_load_model(self) -> None:
-        """Load the selected model with configured options."""
-        model_id = self._get_selected_model_id()
+    # ------------------------------------------------------------------
+    # Key handlers
+    # ------------------------------------------------------------------
 
-        if not model_id:
-            self.app.notify("No model selected", severity="warning")
-            return
+    def key_enter(self) -> None:
+        """Open model detail/config screen for the highlighted model."""
+        if isinstance(self.app.focused, DataTable):
+            self.action_show_details()
 
-        model = self._get_model_by_id(model_id)
+    def key_d(self) -> None:
+        """Open the Hugging Face model browser."""
+        from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
+        self.app.push_screen(ModelBrowserScreen())
 
-        if model and model.loaded:
-            self.app.notify(f"Model '{model.name or model_id}' is already loaded", severity="information")
-            return
-
-        # Get configuration for this model
-        config = self._store.get_model_config(model_id)
-        
-        # Determine context length
-        if config.context_length == -1:  # Max VRAM
-            # Calculate based on available VRAM
-            total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value)
-            used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value)
-            available_vram = max(0, total_vram - used_vram)
-            context_length = self._store.calculate_max_context(model_id, available_vram)
-        elif config.context_length == -2:  # Max supported
-            if model and model.max_context_length > 0:
-                context_length = model.max_context_length
-            else:
-                context_length = 8192
-        else:
-            context_length = config.context_length
-
-        # Set loading state
-        self._store.model_loading.value = model_id
-        self.app.notify(f"Loading '{model_id}' with {context_length:,} context...")
-
-        try:
-            cli = self._store.lms_cli
-            if cli:
-                await cli.load_model(
-                    model_key=model_id,
-                    context_length=context_length,
-                    gpu_offload_percent=config.gpu_offload_percent,
-                    ttl=config.ttl,
-                )
-            else:
-                client = self._store.api_client
-                if not client:
-                    self.app.notify("Not connected to server", severity="error")
-                    return
-                await client.load_model(
-                    model_id,
-                    context_length=context_length,
-                    kv_cache_quantization=config.kv_cache_quantization,
-                )
-                self.app.notify(
-                    "Note: GPU offload/TTL unavailable (lms CLI not found)",
-                    severity="warning",
-                )
-
-            # Notify success immediately — load confirmed
-            self.app.notify(f"✓ Model '{model_id}' loaded successfully", severity="information")
-
-            # Refresh model list as best-effort; timeout here is not a load failure
-            try:
-                refresh_client = self._store.api_client
-                if refresh_client:
-                    models = await refresh_client.get_models()
-                    self._store.models.value = models
-            except Exception:
-                pass
-
-        except Exception as e:
-            logger.error(f"Failed to load model {model_id}: {e}", exc_info=True)
-            self.app.notify(f"Failed to load model: {e}", severity="error")
-        finally:
-            self._store.model_loading.value = None
-
-    async def action_unload_model(self) -> None:
-        """Unload the selected model."""
-        model_id = self._get_selected_model_id()
-        
-        if not model_id:
-            self.app.notify("No model selected", severity="warning")
-            return
-        
-        model = self._get_model_by_id(model_id)
-        
-        if model and not model.loaded:
-            self.app.notify(f"Model '{model.name or model_id}' is not loaded", severity="information")
-            return
-        
-        if not model or not model.instance_id:
-            self.app.notify("No instance ID available for unload", severity="error")
-            return
-        
-        self.app.notify(f"Unloading model '{model_id}'...")
-        
-        try:
-            client = self._store.api_client
-            
-            if not client:
-                self.app.notify("Not connected to server", severity="error")
-                return
-            
-            await client.unload_model(model.instance_id)
-
-            if self._store.active_model.value == model_id:
-                self._store.active_model.value = None
-
-            # Notify success immediately — API confirmed unload
-            self.app.notify(f"Model '{model_id}' unloaded", severity="information")
-
-            # Refresh model list as best-effort
-            try:
-                models = await client.get_models()
-                self._store.models.value = models
-            except Exception:
-                pass
-            
-        except Exception as e:
-            logger.error(f"Failed to unload model {model_id}: {e}", exc_info=True)
-            self.app.notify(f"Failed to unload model: {e}", severity="error")
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
 
     def action_show_details(self) -> None:
-        """Show details for the selected model."""
+        """Open ModelDetailScreen for the selected model."""
         model_id = self._get_selected_model_id()
         if not model_id:
             self.app.notify("No model selected", severity="warning")
             return
-        
         from lmstudio_tui.screens.model_detail_screen import ModelDetailScreen
         self.app.push_screen(ModelDetailScreen(model_id))
 
-    async def action_refresh(self) -> None:
-        """Refresh the models list."""
-        await self._refresh_models()
-        self.app.notify("Models refreshed")
-
-    async def _refresh_models(self) -> None:
-        """Fetch fresh models from the API."""
-        try:
-            client = self._store.api_client
-            if not client:
-                self.app.notify("Not connected to server", severity="error")
-                return
-            
-            models = await client.get_models()
-            self._store.models.value = models
-            self._store.models_error.value = None
-            
-        except Exception as e:
-            logger.error(f"Failed to refresh models: {e}")
-            self._store.models_error.value = str(e)
-            self.app.notify(f"Failed to refresh: {e}", severity="error")
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection - update active model and config."""
+        """Update active model in store on row selection."""
         row_idx = event.cursor_row
         if 0 <= row_idx < len(self._model_ids):
             model_id = self._model_ids[row_idx]
             self._store.set_active_model(model_id)
-            self._selected_model_id = model_id
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        """Handle config select changes - updates config and memory estimate."""
-        model_id = self._get_selected_model_id()
-        if not model_id:
-            return
-
-        config = self._store.get_model_config(model_id)
-
-        if event.select.id == "offload_select":
-            config.gpu_offload_percent = event.value if event.value is not None else -1
-        elif event.select.id == "context_select":
-            config.context_length = event.value if event.value is not None else 8192
-        elif event.select.id == "ttl_select":
-            config.ttl = event.value  # None or int seconds
-
-        self._store.set_model_config(model_id, config)
-
-        # Always update memory estimate when any config changes
-        self._update_memory_estimate(model_id)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
+        """Handle download cancel/close button."""
         if event.button.id == "cancel_download_btn":
             prog = self._store.download_progress.value
             if prog and prog.is_running:
@@ -842,7 +401,6 @@ class ModelsPanel(Container):
                         break
                 self.app.notify("Download cancelled", severity="warning")
             self._store.download_progress.value = None
-
 
     def _on_download_progress_change(self, progress) -> None:
         """Show/update the download status section from store state."""
@@ -886,25 +444,3 @@ class ModelsPanel(Container):
                 self._download_cancel_btn.label = "✓ Close"
                 self._download_cancel_btn.variant = "default"
             self._download_cancel_btn.disabled = False
-
-    def key_l(self) -> None:
-        """Handle 'l' key - load model."""
-        self.run_worker(self.action_load_model())
-
-    def key_u(self) -> None:
-        """Handle 'u' key - unload model."""
-        self.run_worker(self.action_unload_model())
-
-    def key_enter(self) -> None:
-        """Handle Enter key - show details only when DataTable has focus."""
-        if isinstance(self.app.focused, DataTable):
-            self.action_show_details()
-
-    def key_r(self) -> None:
-        """Handle 'r' key - refresh."""
-        self.run_worker(self.action_refresh())
-
-    def key_d(self) -> None:
-        """Handle 'd' key - open model browser."""
-        from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
-        self.app.push_screen(ModelBrowserScreen())

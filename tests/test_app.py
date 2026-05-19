@@ -40,7 +40,9 @@ def test_app_bindings():
     bindings_dict = {b[0]: b[1] for b in app.BINDINGS}
     assert "q" in bindings_dict
     assert bindings_dict["q"] == "quit"
-    assert "r" in bindings_dict
-    assert bindings_dict["r"] == "refresh"
     assert "?" in bindings_dict
     assert bindings_dict["?"] == "help"
+    # Load/unload/refresh are now handled inside ModelDetailScreen, not global hotkeys
+    assert "r" not in bindings_dict
+    assert "l" not in bindings_dict
+    assert "u" not in bindings_dict

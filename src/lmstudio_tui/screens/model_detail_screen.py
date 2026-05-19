@@ -1,8 +1,7 @@
 """Model detail screen for LM Studio TUI.
 
-Displays detailed information about a model with Load/Unload controls.
-This is a modal screen that appears when the user selects a model
-and presses Enter.
+Displays detailed information about a model with full load configuration
+(GPU offload, context length, TTL) and Load/Unload controls.
 """
 
 from __future__ import annotations
@@ -14,16 +13,48 @@ from typing import Optional
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Button, Select, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
 
 logger = logging.getLogger(__name__)
 
+# Context length options
+CONTEXT_OPTIONS = [
+    ("8K tokens", 8192),
+    ("16K tokens", 16384),
+    ("32K tokens", 32768),
+    ("65K tokens", 65536),
+    ("98K tokens", 98304),
+    ("131K tokens", 131072),
+    ("192K tokens", 196608),
+    ("262K tokens", 262144),
+    ("Auto (Max VRAM)", -1),
+    ("Auto (Model Max)", -2),
+]
+
+# GPU offload options — "Max" lets lms pick the highest safe fraction at load time
+OFFLOAD_OPTIONS = [
+    ("Max", -1),
+    ("75%", 75),
+    ("50%", 50),
+    ("25%", 25),
+    ("0% (CPU only)", 0),
+]
+
+# TTL auto-unload options
+TTL_OPTIONS = [
+    ("Off", None),
+    ("1 minute", 60),
+    ("5 minutes", 300),
+    ("30 minutes", 1800),
+    ("1 hour", 3600),
+]
+
 
 class ModelDetailScreen(ModalScreen[Optional[str]]):
-    """Modal screen showing model details with Load/Unload controls.
+    """Modal screen showing model details with full load configuration.
 
     Returns:
         Action taken: "loaded", "unloaded", or None if cancelled.
@@ -35,12 +66,13 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         background: $background 80%;
     }
     ModelDetailScreen > Container {
-        width: 80;
+        width: 90;
         height: auto;
-        max-height: 22;
+        max-height: 90%;
         background: $surface;
         border: solid $primary;
         padding: 1 2;
+        overflow-y: auto;
     }
     ModelDetailScreen Static.title {
         text-style: bold;
@@ -89,6 +121,46 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     ModelDetailScreen Button {
         margin: 0 1;
     }
+    ModelDetailScreen Static.section-title {
+        text-style: bold;
+        color: $secondary;
+        height: 1;
+        margin-top: 1;
+        width: 100%;
+    }
+    ModelDetailScreen Static.config-label {
+        color: $text;
+        text-style: bold;
+        height: 1;
+        width: 100%;
+        margin-top: 1;
+    }
+    ModelDetailScreen Static.config-desc {
+        color: $text-muted;
+        height: 1;
+        width: 100%;
+        text-style: italic;
+    }
+    ModelDetailScreen Select {
+        width: auto;
+        min-width: 25;
+        max-width: 40;
+        margin-top: 0;
+    }
+    ModelDetailScreen Static.vram-estimate {
+        height: 1;
+        width: 100%;
+        text-style: bold;
+    }
+    ModelDetailScreen Static.vram-estimate.green {
+        color: $success;
+    }
+    ModelDetailScreen Static.vram-estimate.yellow {
+        color: $warning;
+    }
+    ModelDetailScreen Static.vram-estimate.red {
+        color: $error;
+    }
     """
 
     def __init__(self, model_id: str, **kwargs):
@@ -99,9 +171,15 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self._model: Optional[ModelInfo] = None
         self._loading = False
         self._loading_dots = 0
-        self._loading_task = None   # Textual interval Timer
-        self._loading_widget: Optional[Static] = None   # pre-composed; set in on_mount
-        self._error_widget: Optional[Static] = None     # pre-composed; set in on_mount
+        self._loading_task = None
+        self._loading_widget: Optional[Static] = None
+        self._error_widget: Optional[Static] = None
+        self._offload_select: Optional[Select] = None
+        self._context_select: Optional[Select] = None
+        self._ttl_select: Optional[Select] = None
+        self._vram_low_widget: Optional[Static] = None
+        self._vram_mid_widget: Optional[Static] = None
+        self._vram_high_widget: Optional[Static] = None
 
     # ------------------------------------------------------------------
     # Compose / mount
@@ -109,10 +187,11 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
 
     def compose(self) -> ComposeResult:
         """Compose the modal content."""
+        self._model = self._get_model()
+        cfg = self._store.get_model_config(self.model_id) if self._model else None
+
         with Container():
             yield Static("🤖 Model Details", classes="title")
-
-            self._model = self._get_model()
 
             if self._model:
                 with Horizontal(classes="info-row"):
@@ -124,33 +203,58 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                         yield Static("ID:", classes="label")
                         yield Static(self._model.id, classes="value")
 
-                cfg = self._store.get_model_config(self.model_id)
-                if self._model.loaded and self._model.loaded_context_length > 0:
-                    context_text = f"{self._model.loaded_context_length:,} tokens (active)"
-                elif cfg.context_length == -1:
-                    context_text = "Auto (Max VRAM)"
-                elif cfg.context_length == -2:
-                    context_text = "Auto (Model Max)"
-                elif cfg.context_length > 0:
-                    context_text = f"{cfg.context_length:,} tokens"
-                elif self._model.max_context_length > 0:
-                    context_text = f"{self._model.max_context_length:,} tokens (model max)"
-                else:
-                    context_text = "-"
-                with Horizontal(classes="info-row"):
-                    yield Static("Context:", classes="label")
-                    yield Static(context_text, classes="value")
-
-                ttl_text = "Off" if not cfg.ttl else f"{cfg.ttl}s auto-unload"
-                with Horizontal(classes="info-row"):
-                    yield Static("TTL:", classes="label")
-                    yield Static(ttl_text, classes="value")
-
                 status_text = "● Loaded" if self._model.loaded else "○ Standby"
                 status_class = "status-loaded" if self._model.loaded else "status-standby"
                 with Horizontal(classes="info-row"):
                     yield Static("Status:", classes="label")
                     yield Static(status_text, classes=f"value {status_class}")
+
+                # Load configuration section
+                yield Static("⚙️  LOAD CONFIGURATION", classes="section-title")
+
+                yield Static("GPU Layer Offload", classes="config-label")
+                yield Static(
+                    "Fraction of layers on GPU; partial offload allows models larger than VRAM",
+                    classes="config-desc",
+                )
+                offload_value = (cfg.gpu_offload_percent if cfg.gpu_offload_percent >= 0 else -1) if cfg else -1
+                self._offload_select = Select(
+                    OFFLOAD_OPTIONS,
+                    value=offload_value,
+                    id="detail_offload_select",
+                )
+                yield self._offload_select
+
+                yield Static("Context Length", classes="config-label")
+                yield Static("Token window for conversation", classes="config-desc")
+                context_value = (cfg.context_length if cfg.context_length > 0 else 8192) if cfg else 8192
+                self._context_select = Select(
+                    CONTEXT_OPTIONS,
+                    value=context_value,
+                    id="detail_context_select",
+                )
+                yield self._context_select
+
+                yield Static("Auto-Unload (TTL)", classes="config-label")
+                yield Static("Unload model after N seconds of inactivity", classes="config-desc")
+                ttl_value = cfg.ttl if cfg else None
+                self._ttl_select = Select(
+                    TTL_OPTIONS,
+                    value=ttl_value,
+                    id="detail_ttl_select",
+                )
+                yield self._ttl_select
+
+                # Memory estimate section
+                yield Static("💾 MEMORY ESTIMATE", classes="section-title")
+                self._vram_low_widget = Static(
+                    "Loading estimate…", classes="vram-estimate", id="detail_vram_low"
+                )
+                self._vram_mid_widget = Static("", classes="vram-estimate", id="detail_vram_mid")
+                self._vram_high_widget = Static("", classes="vram-estimate", id="detail_vram_high")
+                yield self._vram_low_widget
+                yield self._vram_mid_widget
+                yield self._vram_high_widget
 
                 # Loading indicator and error — hidden until needed
                 yield Static("", classes="loading", id="loading-indicator")
@@ -168,7 +272,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     yield Button("Close", id="cancel-btn")
 
     def on_mount(self) -> None:
-        """Wire up pre-composed dynamic widgets and protect against Enter auto-fire."""
+        """Wire up dynamic widgets and trigger initial memory estimate."""
         try:
             self._loading_widget = self.query_one("#loading-indicator", Static)
             self._loading_widget.display = False
@@ -187,13 +291,15 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             btn.disabled = True
         self.call_after_refresh(self._enable_buttons_after_mount)
 
+        # Trigger initial memory estimate
+        if self._model:
+            self._update_memory_estimate()
+
     def _enable_buttons_after_mount(self) -> None:
-        """Re-enable buttons after the first render cycle and restore keyboard focus."""
+        """Re-enable buttons after first render and restore keyboard focus."""
         if not self._loading:
             for btn in self.query(Button):
                 btn.disabled = False
-        # Explicitly focus Cancel so arrow keys / Tab / Space / Enter all work.
-        # Disabling widgets on mount causes Textual to drop focus; we must restore it.
         try:
             self.query_one("#cancel-btn", Button).focus()
         except Exception:
@@ -204,17 +310,29 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     # ------------------------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses — load/unload run in a worker to avoid blocking the UI."""
+        """Handle button presses."""
         button_id = event.button.id
 
         if button_id == "load-btn":
-            # run_worker prevents the event loop from blocking during the HTTP call.
-            # If the user dismisses the modal while loading, Textual cancels the worker.
             self.run_worker(self._load_model(), exclusive=True)
         elif button_id == "unload-btn":
             self.run_worker(self._unload_model(), exclusive=True)
         elif button_id == "cancel-btn":
             self.dismiss(None)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Persist config changes to store and refresh memory estimate."""
+        config = self._store.get_model_config(self.model_id)
+
+        if event.select.id == "detail_offload_select":
+            config.gpu_offload_percent = event.value if event.value is not None else -1
+        elif event.select.id == "detail_context_select":
+            config.context_length = event.value if event.value is not None else 8192
+        elif event.select.id == "detail_ttl_select":
+            config.ttl = event.value
+
+        self._store.set_model_config(self.model_id, config)
+        self._update_memory_estimate()
 
     def key_escape(self) -> None:
         """Handle Escape key - close modal."""
@@ -263,7 +381,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 self._show_error("Not connected to server")
                 return
 
-            # Resolve context length from the models-panel configuration frame
             config = self._store.get_model_config(self.model_id)
             if config.context_length == -1:  # Auto (Max VRAM)
                 total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value)
@@ -294,9 +411,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     kv_cache_quantization=config.kv_cache_quantization,
                 )
 
-            # Dismiss immediately — load succeeded.
-            # Refresh model list as best-effort; a timeout here must not
-            # be reported as a load failure.
             self._stop_loading()
             self.dismiss("loaded")
             self.app.notify(f"Model '{self.model_id}' loaded successfully")
@@ -307,7 +421,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 pass
 
         except asyncio.CancelledError:
-            # User dismissed the modal while loading — that's fine.
             logger.info(f"Load of {self.model_id} cancelled")
         except Exception as e:
             logger.error(f"Failed to load model {self.model_id}: {e}")
@@ -335,7 +448,6 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             if self._store.active_model.value == self.model_id:
                 self._store.active_model.value = None
 
-            # Dismiss immediately — unload succeeded.
             self._stop_loading()
             self.dismiss("unloaded")
             self.app.notify(f"Model '{self.model_id}' unloaded successfully")
@@ -351,6 +463,79 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             logger.error(f"Failed to unload model {self.model_id}: {e}")
             self._show_error(f"Failed to unload: {e}")
             self._stop_loading()
+
+    # ------------------------------------------------------------------
+    # Memory estimate
+    # ------------------------------------------------------------------
+
+    def _calculate_memory_estimate(
+        self,
+        model: ModelInfo,
+        context_length: int,
+        gpu_offload_percent: int,
+        kv_cache_quantization: str,
+    ) -> tuple[float, float]:
+        """Return (estimated_vram_gb, estimated_ram_gb) for the given config."""
+        model_weights_gb = model.size / (1024 ** 3)
+        kv_kb_per_token = {"f16": 100.0, "q8_0": 50.0, "q4_0": 25.0}.get(
+            kv_cache_quantization, 100.0
+        )
+        model_size_factor = max(1.0, model_weights_gb / 4.0)
+        kv_cache_gb = (context_length * kv_kb_per_token * model_size_factor) / (1024 ** 2)
+        overhead_gb = 0.5
+        total_memory_gb = model_weights_gb + kv_cache_gb + overhead_gb
+
+        vram_ratio = 1.0 if gpu_offload_percent < 0 else gpu_offload_percent / 100.0
+        return total_memory_gb * vram_ratio, total_memory_gb * (1.0 - vram_ratio)
+
+    def _update_memory_estimate(self) -> None:
+        """Refresh the three VRAM estimate rows (low/mid/high quant)."""
+        if not self._vram_low_widget:
+            return
+
+        if not self._model:
+            self._vram_low_widget.update("No model selected")
+            if self._vram_mid_widget:
+                self._vram_mid_widget.update("")
+            if self._vram_high_widget:
+                self._vram_high_widget.update("")
+            return
+
+        config = self._store.get_model_config(self.model_id)
+        ctx = config.context_length if config.context_length > 0 else 8192
+        offload = config.gpu_offload_percent
+
+        total_vram = sum(g.vram_total for g in self._store.gpu_metrics.value) / 1024
+        used_vram = sum(g.vram_used for g in self._store.gpu_metrics.value) / 1024
+        available_vram = max(0, total_vram - used_vram)
+
+        quant_rows = [
+            ("Q4_0 Low ", "q4_0", self._vram_low_widget),
+            ("Q8_0 Mid ", "q8_0", self._vram_mid_widget),
+            (" F16 High", "f16",  self._vram_high_widget),
+        ]
+
+        for label, quant, widget in quant_rows:
+            if widget is None:
+                continue
+            vram_gb, ram_gb = self._calculate_memory_estimate(
+                model=self._model,
+                context_length=ctx,
+                gpu_offload_percent=offload,
+                kv_cache_quantization=quant,
+            )
+            text = (
+                f"{label}: {vram_gb:.1f}GB VRAM / {available_vram:.1f}GB avail"
+                f" | {ram_gb:.1f}GB RAM"
+            )
+            widget.update(text)
+            widget.remove_class("green", "yellow", "red")
+            if vram_gb < available_vram * 0.8:
+                widget.add_class("green")
+            elif vram_gb <= available_vram:
+                widget.add_class("yellow")
+            else:
+                widget.add_class("red")
 
     # ------------------------------------------------------------------
     # UI helpers
@@ -370,19 +555,18 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
         self._update_loading_text()
         if self._loading_widget:
             self._loading_widget.display = True
-        # Keep Cancel enabled so the user can dismiss during a long load
         for btn in self.query(Button):
             if btn.id != "cancel-btn":
                 btn.disabled = True
         self._loading_task = self.set_interval(0.5, self._tick_loading_dots)
 
     def _tick_loading_dots(self) -> None:
-        """Advance the dot counter and refresh the loading label (interval callback)."""
+        """Advance the dot counter and refresh the loading label."""
         self._loading_dots = (self._loading_dots + 1) % 4
         self._update_loading_text()
 
     def _update_loading_text(self) -> None:
-        """Update the pre-composed loading Static text."""
+        """Update the loading Static text."""
         if self._loading_widget:
             dots = "." * self._loading_dots
             self._loading_widget.update(f"⏳ Loading{dots}")
@@ -399,7 +583,7 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             btn.disabled = False
 
     def _show_error(self, message: str) -> None:
-        """Display an error message in the pre-composed error widget."""
+        """Display an error message in the error widget."""
         if self._error_widget:
             self._error_widget.update(message)
             self._error_widget.display = True

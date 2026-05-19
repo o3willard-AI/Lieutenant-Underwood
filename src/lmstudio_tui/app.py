@@ -87,11 +87,8 @@ class LMStudioApp(App):
     CSS_PATH = None  # Will add later
     BINDINGS = [
         ("q", "quit", "Quit"),
-        ("r", "refresh", "Refresh"),
         ("?", "help", "Help"),
         ("tab", "focus_next", "Next Panel"),
-        ("l", "load_model", "Load Model"),
-        ("u", "unload_model", "Unload Model"),
         ("d", "browse_models", "Browse Models"),
     ]
 
@@ -321,52 +318,20 @@ class LMStudioApp(App):
             except asyncio.TimeoutError:
                 pass
 
-    def action_refresh(self) -> None:
-        """Refresh all data."""
-        # Trigger immediate updates by clearing error states
-        self.store.clear_all_errors()
-        self.notify("Refreshing data...")
-
-        # The background workers will pick up fresh data on their next cycle
-        # For immediate refresh, we could trigger the workers here
-
     def action_help(self) -> None:
         """Show help."""
         self.notify(
-            "Help: q=quit, r=refresh, l=load, u=unload, Enter=details, Tab=next panel, ?=help"
+            "Help: q=quit, Enter=model config/load/unload, Tab=next panel, d=browse, ?=help"
         )
 
     def action_focus_next(self) -> None:
         """Move focus to the next panel."""
         self.screen.focus_next()
 
-    def action_load_model(self) -> None:
-        """Load the currently selected model."""
-        logger.info("=== APP action_load_model called ===")
-        from lmstudio_tui.widgets.models_panel import ModelsPanel
-        try:
-            models_panel = self.screen.query_one(ModelsPanel)
-            logger.info(f"Found models_panel: {models_panel}")
-            self.run_worker(models_panel.action_load_model())
-            logger.info("Worker scheduled for load action")
-        except Exception as e:
-            logger.error(f"Error in action_load_model: {e}", exc_info=True)
-            self.notify(f"Error loading model: {e}", severity="error")
-
     def action_browse_models(self) -> None:
         """Open the model browser screen."""
         from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
         self.push_screen(ModelBrowserScreen())
-
-    def action_unload_model(self) -> None:
-        """Unload the currently selected model."""
-        # Find the models panel and trigger unload action
-        from lmstudio_tui.widgets.models_panel import ModelsPanel
-        try:
-            models_panel = self.screen.query_one(ModelsPanel)
-            self.run_worker(models_panel.action_unload_model())
-        except Exception as e:
-            self.notify(f"Error unloading model: {e}", severity="error")
 
     async def on_shutdown(self) -> None:
         """App shutdown - signal all workers to exit gracefully."""

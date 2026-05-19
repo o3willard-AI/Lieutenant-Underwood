@@ -10,6 +10,8 @@ from lmstudio_tui.widgets.models_panel import (
     format_size,
     extract_quantization,
 )
+# CONTEXT_OPTIONS and OFFLOAD_OPTIONS now live in model_detail_screen
+from lmstudio_tui.screens.model_detail_screen import CONTEXT_OPTIONS, OFFLOAD_OPTIONS
 
 
 class TestFormatSize:
@@ -213,22 +215,25 @@ class TestModelsPanel:
         """Test that key binding methods exist."""
         panel = ModelsPanel()
 
-        # Check methods exist
-        assert hasattr(panel, 'key_l')
-        assert hasattr(panel, 'key_u')
+        # Keys present
         assert hasattr(panel, 'key_enter')
-        assert hasattr(panel, 'key_r')
+        assert hasattr(panel, 'key_d')
 
-        # Check action methods exist
-        assert hasattr(panel, 'action_load_model')
-        assert hasattr(panel, 'action_unload_model')
+        # Load/unload/refresh keys removed — those actions live in ModelDetailScreen
+        assert not hasattr(panel, 'key_l')
+        assert not hasattr(panel, 'key_u')
+        assert not hasattr(panel, 'key_r')
+
+        # Action methods
         assert hasattr(panel, 'action_show_details')
-        assert hasattr(panel, 'action_refresh')
+        assert not hasattr(panel, 'action_load_model')
+        assert not hasattr(panel, 'action_unload_model')
+        assert not hasattr(panel, 'action_refresh')
 
-    def test_ttl_select_initialized_to_none(self):
-        """Test that _ttl_select is initialised to None before compose."""
+    def test_ttl_select_not_on_panel(self):
+        """TTL select lives on ModelDetailScreen, not ModelsPanel."""
         panel = ModelsPanel()
-        assert panel._ttl_select is None
+        assert not hasattr(panel, '_ttl_select')
 
     def test_ttl_options_includes_off(self):
         """Test that TTL_OPTIONS contains an 'Off' entry with value None."""
