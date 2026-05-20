@@ -7,6 +7,21 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.0] - 2026-05-19
+
+### Added
+- **PERFORMANCE panel** — new panel between MODELS and CHAT displaying 7 real-time inference metrics:
+  - *TPS (now)* — rolling tokens/sec over the last 5 seconds; highlights green while streaming
+  - *TPS (peak)* — highest tokens/sec burst seen this session
+  - *TPS (avg)* — session-wide average tokens/sec
+  - *TTFT avg* — average time-to-first-token in ms, computed over the last 3 completed requests
+  - *Requests* — total completed inference requests since the TUI started
+  - *Tokens out* — total output tokens generated this session
+  - *Context used* — prompt tokens consumed vs. the loaded model's context window, shown as a percentage with a 20-char block bar (green < 70 %, yellow 70–90 %, red > 90 %)
+- All counters accumulate while the TUI is open and reset on restart (no persistence between sessions).
+
+---
+
 ## [0.7.0] - 2026-05-19
 
 ### Changed
