@@ -125,6 +125,19 @@ install_python_deps() {
     print_success "Python dependencies installed"
 }
 
+grant_net_raw() {
+    # scapy needs CAP_NET_RAW to open raw sockets for the HTTP sniffer.
+    # setcap must target the real binary, not the venv symlink.
+    PYTHON_BIN=$(readlink -f "$VENV_DIR/bin/python3")
+    if command -v setcap &>/dev/null; then
+        setcap cap_net_raw+eip "$PYTHON_BIN" && \
+            print_success "cap_net_raw granted to $PYTHON_BIN (network sniffer enabled)" || \
+            print_warning "setcap failed — network sniffer will be disabled (run manually: sudo setcap cap_net_raw+eip $PYTHON_BIN)"
+    else
+        print_warning "setcap not found (install libcap2-bin) — network sniffer will be disabled"
+    fi
+}
+
 verify_installation() {
     print_info "Verifying installation..."
     if "$VENV_DIR/bin/python" -c "import lmstudio_tui" 2>/dev/null; then
@@ -253,6 +266,7 @@ do_upgrade() {
 
     print_info "Updating Python dependencies..."
     "$VENV_DIR/bin/pip" install --upgrade "$INSTALL_DIR" -q
+    grant_net_raw
 
     verify_installation
     create_launcher   # Recreate launcher in case venv path changed
@@ -299,6 +313,7 @@ do_install() {
     copy_app_files
     create_venv
     install_python_deps
+    grant_net_raw
     verify_installation
     create_launcher
     setup_user_config

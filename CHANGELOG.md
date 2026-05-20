@@ -7,6 +7,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.5] - 2026-05-19
+
+### Fixed
+- **scapy install and setcap wired into the installer** — v0.8.4 shipped scapy as an optional extra (`pip install 'lmstudio-tui[network]'`) that was never fetched by `install.sh`, and the `setcap` command referenced `$(which python3)` (system Python) instead of the venv binary. Fixed by:
+  - Moving `scapy>=2.5.0` into the core `dependencies` list so `install_python_deps()` picks it up automatically on every fresh install and upgrade.
+  - Adding a `grant_net_raw()` function to `install.sh` that runs `setcap cap_net_raw+eip` against `$(readlink -f "$VENV_DIR/bin/python3")` — the resolved real binary the venv symlink points to. Called in both `do_install` and `do_upgrade`.
+  - `setcap` failure (missing `libcap2-bin` or unexpected error) prints a warning and continues rather than aborting the install.
+  - All log/notification strings that told users to run `pip install 'lmstudio-tui[network]'` updated to point at the installer instead.
+
+---
+
 ## [0.8.4] - 2026-05-19
 
 ### Added

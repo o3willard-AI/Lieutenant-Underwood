@@ -74,10 +74,7 @@ class HTTPSniffer:
     def start(self, port: int) -> bool:
         """Start sniffing on *port*.  Returns False if scapy is not installed."""
         if not _SCAPY_AVAILABLE:
-            logger.warning(
-                "scapy not installed — network sniffer disabled. "
-                "Enable with: pip install 'lmstudio-tui[network]'"
-            )
+            logger.warning("scapy not installed — network sniffer disabled")
             self.available = False
             return False
         self._port = port
@@ -136,8 +133,8 @@ class HTTPSniffer:
         self.available = False
         self.privileged = False
         logger.error(
-            "HTTP sniffer: insufficient privileges. "
-            "Fix with:  sudo setcap cap_net_raw+eip $(readlink -f $(which python3))"
+            "HTTP sniffer: insufficient privileges (CAP_NET_RAW required). "
+            "Re-run the installer to restore: sudo bash install.sh --upgrade"
         )
 
     # ── Packet handler ───────────────────────────────────────────────────────

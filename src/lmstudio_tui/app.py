@@ -161,8 +161,8 @@ class LMStudioApp(App):
         if not self._http_sniffer.start(port):
             if not self._http_sniffer.available:
                 logger.warning(
-                    "Network sniffer unavailable — install scapy: "
-                    "pip install 'lmstudio-tui[network]'"
+                    "Network sniffer unavailable — re-run installer to fix: "
+                    "sudo bash install.sh --upgrade"
                 )
         self.run_worker(self._port_watch_worker(), name="port_watcher")
 
