@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Generic, Optional, TypeVar
@@ -168,6 +169,19 @@ class ModelLoadConfig:
 
 
 @dataclass
+class InferenceMetrics:
+    """Snapshot of inference performance metrics."""
+    tps_current: float = 0.0
+    tps_peak: float = 0.0
+    tps_average: float = 0.0
+    ttft_last3: list[float] = field(default_factory=list)
+    total_requests: int = 0
+    total_tokens_out: int = 0
+    last_prompt_tokens: int = 0
+    last_context_size: int = 0
+
+
+@dataclass
 class StoreState:
     """Container for all reactive state fields.
 
@@ -234,6 +248,15 @@ class RootStore:
                     cls._instance._api_client: Optional[LMStudioClient] = None
                     cls._instance._config_path: Optional[Path] = None
                     cls._instance._lms_cli = None
+                    cls._instance._token_timestamps: list[float] = []
+                    cls._instance._session_start_time: float = time.time()
+                    cls._instance._tps_peak: float = 0.0
+                    cls._instance._ttft_history: list[float] = []
+                    cls._instance._total_tokens: int = 0
+                    cls._instance._total_requests_count: int = 0
+                    cls._instance._last_prompt_tokens: int = 0
+                    cls._instance._last_context_size: int = 0
+                    cls._instance._request_start_time: Optional[float] = None
         return cls._instance
 
     def __init__(self) -> None:
@@ -638,6 +661,55 @@ class RootStore:
 
         # Cap at model's max supported
         return min(max_context, max_supported)
+
+
+    # ── Inference metrics ────────────────────────────────────────────────
+
+    def record_request_start(self) -> None:
+        """Mark the moment a chat request is sent to the API."""
+        self._request_start_time = time.time()
+
+    def record_first_token(self) -> None:
+        """Record time-to-first-token when the first streaming chunk arrives."""
+        if self._request_start_time is None:
+            return
+        ttft = time.time() - self._request_start_time
+        self._ttft_history = (self._ttft_history + [ttft])[-3:]
+
+    def record_token_chunk(self, count: int = 1) -> None:
+        """Record one or more output tokens arriving from the stream."""
+        now = time.time()
+        self._token_timestamps.extend([now] * count)
+        self._total_tokens += count
+
+    def record_request_complete(
+        self, prompt_tokens: int = 0, context_size: int = 0
+    ) -> None:
+        """Mark a request as successfully completed."""
+        self._total_requests_count += 1
+        self._last_prompt_tokens = prompt_tokens
+        self._last_context_size = context_size
+        self._request_start_time = None
+
+    def get_inference_metrics(self) -> InferenceMetrics:
+        """Compute and return a current snapshot of all inference metrics."""
+        now = time.time()
+        cutoff = now - 5.0
+        self._token_timestamps = [t for t in self._token_timestamps if t >= cutoff]
+        tps_current = len(self._token_timestamps) / 5.0
+        elapsed = max(1.0, now - self._session_start_time)
+        tps_average = self._total_tokens / elapsed
+        self._tps_peak = max(self._tps_peak, tps_current)
+        return InferenceMetrics(
+            tps_current=tps_current,
+            tps_peak=self._tps_peak,
+            tps_average=tps_average,
+            ttft_last3=list(self._ttft_history),
+            total_requests=self._total_requests_count,
+            total_tokens_out=self._total_tokens,
+            last_prompt_tokens=self._last_prompt_tokens,
+            last_context_size=self._last_context_size,
+        )
 
 
 def get_store() -> RootStore:

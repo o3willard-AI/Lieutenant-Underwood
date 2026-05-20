@@ -13,6 +13,7 @@ from lmstudio_tui.widgets.cpu_panel import CPUPanel
 from lmstudio_tui.widgets.gpu_panel import GPUPanel
 from lmstudio_tui.widgets.models_panel import ModelsPanel
 from lmstudio_tui.widgets.chat_panel import ChatPanel
+from lmstudio_tui.widgets.performance_panel import PerformancePanel
 
 
 class MainScreen(Screen):
@@ -43,6 +44,10 @@ class MainScreen(Screen):
         width: 100%;
         height: auto;
     }
+    #performance-panel {
+        width: 100%;
+        height: auto;
+    }
     #chat-panel {
         width: 100%;
         height: 1fr;
@@ -63,6 +68,7 @@ class MainScreen(Screen):
                 GPUPanel(id="gpu-panel"),
                 CPUPanel(id="cpu-panel"),
                 ModelsPanel(id="models-panel"),
+                PerformancePanel(id="performance-panel"),
                 ChatPanel(id="chat-panel"),
                 id="content-column",
             ),

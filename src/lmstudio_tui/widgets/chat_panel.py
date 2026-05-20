@@ -326,8 +326,13 @@ class ChatPanel(Container):
             assistant_index: Index into _chat_history to update in-place.
         """
         full_response = ""
+        first_token = True
         async for chunk in client.chat_completion(active_model, conversation):
             self._last_chunk_time = time.time()
+            if first_token:
+                first_token = False
+                self._store.record_first_token()
+            self._store.record_token_chunk(1)
             full_response = full_response + chunk
             try:
                 if 0 <= assistant_index < len(self._chat_history):
@@ -390,6 +395,7 @@ class ChatPanel(Container):
             # Set generating state and start timeout monitor
             self._is_generating = True
             self._last_chunk_time = time.time()
+            self._store.record_request_start()
             self._monitor_task = asyncio.create_task(self._monitor_stream_health())
 
             # Wrap stream in a task so _cancel_current_stream() can cancel it
@@ -398,6 +404,18 @@ class ChatPanel(Container):
             )
             try:
                 await self._current_stream_task
+                # Stream completed normally — record completion metrics
+                prompt_tokens = sum(
+                    len(m.get("content", "")) // 4
+                    for m in conversation
+                    if m.get("role") != "system"
+                )
+                context_size = 0
+                for m in self._store.models.value:
+                    if m.id == active_model and m.loaded:
+                        context_size = m.loaded_context_length or m.max_context_length or 0
+                        break
+                self._store.record_request_complete(prompt_tokens, context_size)
             except asyncio.CancelledError:
                 logger.warning("Chat stream cancelled")
                 self._chat_history[assistant_index] = (
