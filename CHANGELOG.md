@@ -7,6 +7,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.4] - 2026-05-19
+
+### Added
+- **Passive HTTP sniffer** (`src/lmstudio_tui/network/http_sniffer.py`) — uses scapy to watch all network interfaces for plain HTTP traffic on the LM Studio port. Counts SSE `data:` events (each ≈ 1 output token) directly from server→client TCP payloads, records TTFT from TCP SYN to first token packet, and increments the request counter on `data: [DONE]`. Feeds the same store counters as TUI chat (Requests, Tokens out, TTFT avg, TPS) so all PERFORMANCE panel metrics now reflect external API clients, not just TUI-initiated requests.
+- **Automatic port following** — a `_port_watch_worker` polls `store.config.value.server.port` every 5 s. When it changes (launcher auto-detected a non-default port, or user edits config while the TUI is running), the sniffer restarts on the new port within one poll cycle with a toast notification. No TUI restart required.
+- **`scapy` optional dependency** — `pip install 'lmstudio-tui[network]'`. Core install is unchanged; scapy is large and requires `CAP_NET_RAW` or root, so it is opt-in.
+
+### Notes
+- Enable with: `pip install 'lmstudio-tui[network]'`
+- Grant privileges once: `sudo setcap cap_net_raw+eip $(readlink -f $(which python3))`
+- Without the capability the sniffer logs a one-line error and all other panel metrics remain functional (GPU-estimated TPS from v0.8.2 still runs).
+
+---
+
 ## [0.8.3] - 2026-05-19
 
 ### Added

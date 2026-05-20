@@ -11,6 +11,7 @@ from textual.app import App
 from textual.theme import ThemeProvider
 from textual.worker import get_current_worker
 
+from lmstudio_tui.network.http_sniffer import HTTPSniffer
 from lmstudio_tui.screens.main_screen import MainScreen
 from lmstudio_tui.store import RootStore, get_store
 
@@ -153,6 +154,17 @@ class LMStudioApp(App):
 
         # Start download monitor (polls detached lms-get processes)
         self.run_worker(self._download_monitor_worker(), name="download_monitor")
+
+        # Start passive HTTP sniffer for external inference traffic
+        port = self.store.config.value.server.port
+        self._http_sniffer = HTTPSniffer(self.store)
+        if not self._http_sniffer.start(port):
+            if not self._http_sniffer.available:
+                logger.warning(
+                    "Network sniffer unavailable — install scapy: "
+                    "pip install 'lmstudio-tui[network]'"
+                )
+        self.run_worker(self._port_watch_worker(), name="port_watcher")
 
     async def _gpu_update_worker(self) -> None:
         """Update GPU metrics every config.gpu.update_frequency seconds.
@@ -321,6 +333,29 @@ class LMStudioApp(App):
             except asyncio.TimeoutError:
                 pass
 
+    async def _port_watch_worker(self) -> None:
+        """Restart the HTTP sniffer whenever the configured server port changes.
+
+        Polls every 5 s.  The launcher auto-detects the port at startup and
+        writes it into store.config; if the user edits config while the TUI
+        is running the sniffer will follow within one poll cycle.
+        """
+        while not self._shutdown_event.is_set():
+            sniffer = getattr(self, "_http_sniffer", None)
+            if sniffer and sniffer.available:
+                current_port = self.store.config.value.server.port
+                if current_port and current_port != sniffer.port:
+                    sniffer.update_port(current_port)
+                    self.notify(
+                        f"Network sniffer moved to port {current_port}",
+                        severity="information",
+                        timeout=3,
+                    )
+            try:
+                await asyncio.wait_for(self._shutdown_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+
     def action_help(self) -> None:
         """Show help."""
         self.notify(
@@ -343,6 +378,8 @@ class LMStudioApp(App):
         self.store.stop_gpu_monitoring()
         self.store.stop_cpu_monitoring()
         await self.store.disconnect_from_server()
+        if hasattr(self, "_http_sniffer"):
+            self._http_sniffer.stop()
 
 
 def main():

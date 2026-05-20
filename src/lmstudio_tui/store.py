@@ -260,6 +260,7 @@ class RootStore:
                     cls._instance._request_start_time: Optional[float] = None
                     cls._instance._last_avg_gpu_util: float = 0.0
                     cls._instance._calibration_ratio: float = 0.0
+                    cls._instance._tui_request_active: bool = False
         return cls._instance
 
     def __init__(self) -> None:
@@ -671,6 +672,7 @@ class RootStore:
     def record_request_start(self) -> None:
         """Mark the moment a chat request is sent to the API."""
         self._request_start_time = time.time()
+        self._tui_request_active = True
 
     def record_first_token(self) -> None:
         """Record time-to-first-token when the first streaming chunk arrives."""
@@ -693,6 +695,7 @@ class RootStore:
         self._last_prompt_tokens = prompt_tokens
         self._last_context_size = context_size
         self._request_start_time = None
+        self._tui_request_active = False
 
     def record_gpu_utilization(self, avg_util: float) -> None:
         """Called each GPU poll cycle; drives self-calibration for external inference estimation.
@@ -716,6 +719,31 @@ class RootStore:
             self._calibration_ratio = new_ratio
         else:
             self._calibration_ratio = 0.8 * self._calibration_ratio + 0.2 * new_ratio
+
+    # ── Network sniffer hooks ────────────────────────────────────────────────
+    # These are called from the HTTPSniffer background thread for external
+    # clients.  All three are no-ops when a TUI chat is active to avoid
+    # double-counting (the TUI path already records the same packets).
+
+    def record_network_first_token(self, ttft: float) -> None:
+        """Record TTFT observed by the sniffer for a non-TUI request."""
+        if self._tui_request_active:
+            return
+        self._ttft_history = (self._ttft_history + [ttft])[-3:]
+
+    def record_network_token_chunk(self, count: int = 1) -> None:
+        """Record token chunks seen in SSE server→client packets."""
+        if self._tui_request_active:
+            return
+        now = time.time()
+        self._token_timestamps.extend([now] * count)
+        self._total_tokens += count
+
+    def record_network_request_complete(self) -> None:
+        """Increment request counter when sniffer sees data: [DONE]."""
+        if self._tui_request_active:
+            return
+        self._total_requests_count += 1
 
     def get_inference_metrics(self) -> InferenceMetrics:
         """Compute and return a current snapshot of all inference metrics."""
