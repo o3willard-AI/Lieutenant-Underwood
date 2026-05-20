@@ -7,6 +7,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.1] - 2026-05-19
+
+### Changed
+- **PERFORMANCE panel** — consolidated six stat widgets into a single row (TPS now, TPS peak, TPS avg, TTFT avg, Requests, Tokens out), reducing vertical space from two rows to one.
+
+---
+
 ## [0.8.0] - 2026-05-19
 
 ### Added

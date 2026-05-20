@@ -64,7 +64,6 @@ class PerformancePanel(Container):
             yield self._tps_peak_widget
             self._tps_avg_widget = Static("", classes="stat", id="perf_tps_avg")
             yield self._tps_avg_widget
-        with Horizontal(classes="stats-row"):
             self._ttft_widget = Static("", classes="stat", id="perf_ttft")
             yield self._ttft_widget
             self._req_widget = Static("", classes="stat", id="perf_req")
