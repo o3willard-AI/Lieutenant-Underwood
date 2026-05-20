@@ -129,8 +129,11 @@ grant_net_raw() {
     # scapy needs CAP_NET_RAW to open raw sockets for the HTTP sniffer.
     # setcap must target the real binary, not the venv symlink.
     PYTHON_BIN=$(readlink -f "$VENV_DIR/bin/python3")
-    if command -v setcap &>/dev/null; then
-        setcap cap_net_raw+eip "$PYTHON_BIN" && \
+    # setcap lives in /usr/sbin on Debian/Ubuntu which may not be in PATH
+    # even under sudo depending on sudoers secure_path setting.
+    SETCAP_BIN=$(command -v setcap 2>/dev/null || echo /usr/sbin/setcap)
+    if [ -x "$SETCAP_BIN" ]; then
+        "$SETCAP_BIN" cap_net_raw+eip "$PYTHON_BIN" && \
             print_success "cap_net_raw granted to $PYTHON_BIN (network sniffer enabled)" || \
             print_warning "setcap failed — network sniffer will be disabled (run manually: sudo setcap cap_net_raw+eip $PYTHON_BIN)"
     else
