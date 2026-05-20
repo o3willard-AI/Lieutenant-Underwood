@@ -7,6 +7,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.7.0] - 2026-05-19
+
+### Changed
+- **Single-column layout** — removed the right-side models panel. All panels (GPU STATUS, CPU STATUS, MODELS, CHAT) now stack vertically in one full-width column, eliminating persistent display issues with the split-pane layout.
+- **MODELS panel is now list-only** — the panel between CPU STATUS and CHAT shows only the model table and active download status. No configuration controls in the main view.
+- **Load configuration moved into the detail screen** — pressing Enter on a model opens a modal that contains the full configuration UI: GPU Layer Offload, Context Length, and Auto-Unload (TTL) dropdowns with live VRAM estimates. Settings are saved to the store immediately and used by the Load button in the same screen.
+- **Removed global Load / Unload / Refresh hotkeys** (`l`, `u`, `r`) — load and unload now happen exclusively inside the model detail screen. The app auto-refreshes; a manual refresh hotkey is not needed.
+
+---
+
 ## [0.6.0] - 2026-05-09
 
 ### Added
