@@ -7,6 +7,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.2] - 2026-05-19
+
+### Fixed
+- **External inference now tracked by PERFORMANCE panel** — counters previously only updated when the TUI itself sent a chat request. Now the GPU worker feeds utilization samples into a self-calibrating ratio (TPS ÷ GPU %) derived from observed TUI chat sessions. When the GPU is above 20 % utilization and no TUI request is active, TPS (now) is estimated from that ratio and displayed with a `~` prefix to indicate it is an approximation. TTFT, Requests, and Tokens out continue to reflect only TUI-initiated requests.
+
+---
+
 ## [0.8.1] - 2026-05-19
 
 ### Changed

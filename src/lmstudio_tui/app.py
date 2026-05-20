@@ -171,6 +171,9 @@ class LMStudioApp(App):
                 metrics = monitor.get_metrics()
                 self.store.gpu_metrics.value = metrics
                 self.store.gpu_error.value = None
+                if metrics:
+                    avg_util = sum(g.utilization for g in metrics) / len(metrics)
+                    self.store.record_gpu_utilization(avg_util)
 
             except Exception as e:
                 self.store.gpu_error.value = str(e)

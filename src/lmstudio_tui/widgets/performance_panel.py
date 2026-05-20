@@ -80,11 +80,12 @@ class PerformancePanel(Container):
     def _refresh_display(self) -> None:
         m = self._store.get_inference_metrics()
 
-        # TPS (now) — highlight green when streaming, dim when idle
+        # TPS (now) — highlight green when active, dim when idle; ~ prefix if estimated
         if self._tps_now_widget:
             if m.tps_current > 0.1:
+                prefix = "~" if m.tps_is_estimated else ""
                 self._tps_now_widget.update(
-                    f"[dim]TPS (now)[/dim]\n[$success]{m.tps_current:.1f} t/s[/]"
+                    f"[dim]TPS (now)[/dim]\n[$success]{prefix}{m.tps_current:.1f} t/s[/]"
                 )
             else:
                 self._tps_now_widget.update(

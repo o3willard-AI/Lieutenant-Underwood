@@ -179,6 +179,7 @@ class InferenceMetrics:
     total_tokens_out: int = 0
     last_prompt_tokens: int = 0
     last_context_size: int = 0
+    tps_is_estimated: bool = False
 
 
 @dataclass
@@ -257,6 +258,8 @@ class RootStore:
                     cls._instance._last_prompt_tokens: int = 0
                     cls._instance._last_context_size: int = 0
                     cls._instance._request_start_time: Optional[float] = None
+                    cls._instance._last_avg_gpu_util: float = 0.0
+                    cls._instance._calibration_ratio: float = 0.0
         return cls._instance
 
     def __init__(self) -> None:
@@ -691,6 +694,29 @@ class RootStore:
         self._last_context_size = context_size
         self._request_start_time = None
 
+    def record_gpu_utilization(self, avg_util: float) -> None:
+        """Called each GPU poll cycle; drives self-calibration for external inference estimation.
+
+        When a TUI chat is active and GPU utilization is meaningful, records a
+        (TPS, GPU%) pair via EMA to calibrate the tokens-per-percent ratio.
+        That ratio is later used to estimate TPS from GPU activity alone when
+        an external client is driving the GPU with no TUI chat open.
+        """
+        self._last_avg_gpu_util = avg_util
+        if self._request_start_time is None or avg_util < 10.0:
+            return
+        now = time.time()
+        cutoff = now - 5.0
+        recent = [t for t in self._token_timestamps if t >= cutoff]
+        tps = len(recent) / 5.0
+        if tps < 0.5:
+            return
+        new_ratio = tps / avg_util
+        if self._calibration_ratio == 0.0:
+            self._calibration_ratio = new_ratio
+        else:
+            self._calibration_ratio = 0.8 * self._calibration_ratio + 0.2 * new_ratio
+
     def get_inference_metrics(self) -> InferenceMetrics:
         """Compute and return a current snapshot of all inference metrics."""
         now = time.time()
@@ -699,6 +725,18 @@ class RootStore:
         tps_current = len(self._token_timestamps) / 5.0
         elapsed = max(1.0, now - self._session_start_time)
         tps_average = self._total_tokens / elapsed
+        tps_is_estimated = False
+
+        # If no TUI chat is active but GPU is busy, estimate TPS from calibration ratio
+        if (
+            tps_current < 0.1
+            and self._request_start_time is None
+            and self._last_avg_gpu_util > 20.0
+            and self._calibration_ratio > 0.0
+        ):
+            tps_current = self._calibration_ratio * self._last_avg_gpu_util
+            tps_is_estimated = True
+
         self._tps_peak = max(self._tps_peak, tps_current)
         return InferenceMetrics(
             tps_current=tps_current,
@@ -709,6 +747,7 @@ class RootStore:
             total_tokens_out=self._total_tokens,
             last_prompt_tokens=self._last_prompt_tokens,
             last_context_size=self._last_context_size,
+            tps_is_estimated=tps_is_estimated,
         )
 
 
