@@ -7,6 +7,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.3] - 2026-05-19
+
+### Added
+- **`/cal` slash command in CHAT panel** — sends a built-in five-topic technical reference prompt (~5 k token response) that calibrates the GPU-utilization TPS estimation ratio introduced in v0.8.2. Running `/cal` once after loading a model gives the estimator a stable baseline so that external inference requests immediately show realistic `~TPS` values. The command is listed in the hint bar and `/help` output.
+
+---
+
 ## [0.8.2] - 2026-05-19
 
 ### Fixed

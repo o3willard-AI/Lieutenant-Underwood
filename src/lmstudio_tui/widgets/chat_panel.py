@@ -19,6 +19,45 @@ from lmstudio_tui.store import get_store
 
 logger = logging.getLogger(__name__)
 
+_CAL_PROMPT = """\
+Please write a detailed technical reference covering all five topics below. \
+Be thorough and exhaustive — the goal is a complete guide a developer could use as a reference. \
+Cover each topic with full explanations, examples, and depth.
+
+1. TRANSFORMER ARCHITECTURE: Explain how transformer neural networks work from first \
+principles. Cover tokenization, embeddings, positional encoding, multi-head self-attention \
+(including the Q/K/V mechanics), feed-forward layers, layer normalization, the \
+encoder/decoder distinction, and how modern decoder-only LLMs differ from the original \
+architecture. Include the intuition behind why attention works and why it scales.
+
+2. LINUX MEMORY MANAGEMENT: Describe how the Linux kernel manages memory. Cover virtual \
+address spaces, page tables and TLB, the buddy allocator and slab allocator, demand paging \
+and page faults, memory-mapped files, the page cache, swap space, the OOM killer, and \
+cgroups memory limits. Explain step-by-step what happens inside the kernel when a process \
+calls malloc() and then writes to the returned pointer for the first time.
+
+3. TCP/IP NETWORKING: Walk through how TCP/IP works at every layer. Cover the OSI vs \
+TCP/IP model, Ethernet framing, IP routing and CIDR, ARP, the TCP three-way handshake, \
+sequence numbers and acknowledgements, flow control (receiver window), congestion control \
+(slow start, AIMD, CUBIC), TIME_WAIT state, and common TCP tuning parameters. Trace what \
+actually travels on the wire for a minimal HTTP/1.1 GET request end to end.
+
+4. CPU MICROARCHITECTURE: Explain modern CPU internals from pipeline basics through \
+superscalar out-of-order execution. Cover the fetch/decode/execute/writeback pipeline, \
+data and control hazards, branch prediction (static, dynamic, BTB, TAGE), out-of-order \
+execution and the reorder buffer, register renaming, the cache hierarchy (L1/L2/L3, MESI \
+coherence protocol), NUMA in multi-socket systems, and how Spectre and Meltdown exploited \
+microarchitectural side channels.
+
+5. DATABASE QUERY OPTIMIZATION: Describe how a relational database executes and optimizes \
+queries. Cover how B-tree and hash indexes work internally, the role of table statistics \
+and histograms, how the query planner chooses between sequential scan, index scan, and \
+bitmap scan, nested loop vs hash join vs merge join algorithms, the cost model, index \
+selectivity, covering indexes, partial indexes, expression indexes, and the most common \
+reasons a planner picks a suboptimal plan and how to diagnose and fix each with \
+EXPLAIN ANALYZE.\
+"""
+
 
 class ChatPanel(Container):
     """Panel for chatting with loaded models and downloading new ones.
@@ -129,7 +168,7 @@ class ChatPanel(Container):
             yield self._input_widget
         
         # Hint text
-        yield Static("Commands: /add <path>  |  /switch <model_id>  |  /clear  |  Type to chat", classes="hint")
+        yield Static("Commands: /add <path>  |  /switch <model_id>  |  /clear  |  /cal  |  Type to chat", classes="hint")
 
     def on_mount(self) -> None:
         """Mount panel and set up watchers."""
@@ -242,8 +281,13 @@ class ChatPanel(Container):
         elif cmd == "/clear":
             self._chat_history.clear()
             self._add_message("system", "Chat history cleared.")
+        elif cmd == "/cal":
+            await self._cmd_cal()
         elif cmd == "/help":
-            self._add_message("system", "Commands: /add <path>, /switch <model_id>, /clear, /help")
+            self._add_message(
+                "system",
+                "Commands: /add <path>, /switch <model_id>, /clear, /cal, /help",
+            )
         else:
             self._add_message("error", f"Unknown command: {cmd}")
 
@@ -306,6 +350,16 @@ class ChatPanel(Container):
         
         if model and not model.loaded:
             self._add_message("system", f"Model not loaded. Press 'l' in Models panel to load.")
+
+    async def _cmd_cal(self) -> None:
+        """Handle /cal — send the calibration prompt to build the GPU/TPS ratio."""
+        self._add_message(
+            "system",
+            "Starting calibration run (~5 k token response). "
+            "TPS (now) will be exact during this request; "
+            "subsequent external requests will use the derived ratio.",
+        )
+        await self._handle_chat(_CAL_PROMPT)
 
     async def _run_stream(
         self,
