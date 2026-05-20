@@ -7,6 +7,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.6] - 2026-05-20
+
+### Fixed
+- **`grant_net_raw` silently skipped on Ubuntu** — `setcap` lives at `/usr/sbin/setcap` on Debian/Ubuntu systems. When `sudo bash install.sh` runs with a restrictive `secure_path` in sudoers (common on Ubuntu), `/usr/sbin` is absent from `$PATH`, so `command -v setcap` returns nothing and the capability grant was silently skipped. The installer now falls back to `/usr/sbin/setcap` explicitly before giving up, ensuring `CAP_NET_RAW` is applied correctly on standard Ubuntu installs.
+
+---
+
 ## [0.8.5] - 2026-05-19
 
 ### Fixed
