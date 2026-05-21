@@ -1,188 +1,183 @@
-"""Passive HTTP sniffer for LM Studio inference traffic.
+"""HTTP sniffer using tcpdump subprocess.
 
-Monitors all network interfaces for plain HTTP traffic on the LM Studio port
-and feeds request counts, TTFT, and token chunk counts directly into the store.
+Replaces the in-process scapy approach (v0.8.4–0.8.6) which caused
+significant network throughput degradation. The root causes were:
 
-Requires CAP_NET_RAW or root.  Falls back gracefully if scapy is absent or
-privileges are insufficient — all other panel metrics remain functional.
+1. AF_PACKET/ETH_P_ALL socket — the kernel delivers a copy of every
+   ethernet frame to the socket for BPF evaluation, adding per-packet
+   overhead to all traffic on the interface regardless of the filter.
 
-Port tracking: call update_port() to restart the sniffer on a new port.
-app.py's _port_watch_worker polls store.config.value.server.port every 5 s
-and calls update_port() on change, so the sniffer follows config edits without
-a TUI restart.
+2. GIL contention — running scapy's packet callback in a Python thread
+   starved the asyncio event loop, throttling httpx downloads via TCP
+   receive-window starvation (visible as ~366 bytes/sec HF downloads).
 
-Token counting: LM Studio streams one SSE event per output token.  Each packet
-from the server containing "data: {" has that many token chunks.  We count
-occurrences of b"data: {" in the raw TCP payload — fast, allocation-free, and
-accurate for the typical 1-event-per-packet streaming pattern.  Packets that
-happen to span multiple events are still counted correctly.
+tcpdump runs as a completely separate process: its own memory space, no
+shared GIL, efficient kernel BPF that delivers only matching packets to
+userspace. Performance impact on the host is negligible.
 
-TTFT: measured from the TCP SYN timestamp to the first packet that contains a
-token event (b"data: {"), which closely matches the wall-clock TTFT a client
-would observe.
+Requires: tcpdump installed with cap_net_raw capability.
+Grant:    sudo setcap cap_net_raw+eip $(which tcpdump)
+          (done automatically by install.sh)
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    import scapy.all as _scapy_probe  # noqa: F401 — test import only
-    _SCAPY_AVAILABLE = True
-except ImportError:
-    _SCAPY_AVAILABLE = False
-
-
-@dataclass
-class _ConnState:
-    """Per-TCP-connection tracking state."""
-    start_time: float = field(default_factory=time.time)
-    first_token_seen: bool = False
-
 
 class HTTPSniffer:
-    """Passive sniffer that counts requests and tokens from LM Studio HTTP traffic.
+    """Passive sniffer that counts LM Studio requests and token chunks.
 
-    Thread-safe.  update_port() stops the current sniffer thread and starts a
-    new one on the new port within ~1 s (scapy's sniff timeout), preserving all
-    session-level store counters.
+    Spawns tcpdump as a child process and reads its line-buffered ASCII
+    output.  Only packets matching ``tcp port <port>`` reach the reader;
+    all other traffic is filtered in the kernel before reaching Python.
     """
 
     def __init__(self, store) -> None:
         self._store = store
         self._port: int = 0
-        self._stop_flag = threading.Event()
+        self._proc: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
-        self._conn_lock = threading.Lock()
-        self._connections: dict[tuple, _ConnState] = {}
-        # Public status flags (read by app.py for notifications)
-        self.available: bool = _SCAPY_AVAILABLE
+        self._stop_flag = threading.Event()
+        self.available: bool = True
         self.privileged: bool = True
 
     @property
     def port(self) -> int:
         return self._port
 
+    @staticmethod
+    def _find_tcpdump() -> Optional[str]:
+        for candidate in (
+            shutil.which("tcpdump"),
+            "/usr/bin/tcpdump",
+            "/usr/sbin/tcpdump",
+        ):
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return None
+
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
     def start(self, port: int) -> bool:
-        """Start sniffing on *port*.  Returns False if scapy is not installed."""
-        if not _SCAPY_AVAILABLE:
-            logger.warning("scapy not installed — network sniffer disabled")
+        """Start sniffing on *port*.  Returns False if tcpdump is not found."""
+        tcpdump = self._find_tcpdump()
+        if not tcpdump:
+            logger.warning("tcpdump not found — network sniffer disabled")
             self.available = False
             return False
         self._port = port
         self._stop_flag.clear()
         self._thread = threading.Thread(
-            target=self._sniff_loop, daemon=True, name="http_sniffer"
+            target=self._run, args=(tcpdump,), daemon=True, name="http_sniffer"
         )
         self._thread.start()
-        logger.info(f"HTTP sniffer started on port {port}")
+        logger.info(f"HTTP sniffer (tcpdump) started on port {port}")
         return True
 
     def update_port(self, new_port: int) -> None:
-        """Switch to *new_port*, restarting the sniffer thread."""
+        """Switch to *new_port*, restarting the tcpdump child process."""
         if new_port == self._port or not self.available:
             return
         old = self._port
         self._stop_flag.set()
+        self._kill_proc()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3.0)
         self._port = new_port
-        with self._conn_lock:
-            self._connections.clear()
         self._stop_flag.clear()
-        self._thread = threading.Thread(
-            target=self._sniff_loop, daemon=True, name="http_sniffer"
-        )
-        self._thread.start()
+        tcpdump = self._find_tcpdump()
+        if tcpdump:
+            self._thread = threading.Thread(
+                target=self._run, args=(tcpdump,), daemon=True, name="http_sniffer"
+            )
+            self._thread.start()
         logger.info(f"HTTP sniffer: port {old} → {new_port}")
 
     def stop(self) -> None:
         self._stop_flag.set()
+        self._kill_proc()
 
-    # ── Sniffer thread ───────────────────────────────────────────────────────
+    def _kill_proc(self) -> None:
+        proc = self._proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self._proc = None
 
-    def _sniff_loop(self) -> None:
-        from scapy.all import sniff
+    # ── tcpdump reader loop ──────────────────────────────────────────────────
+
+    def _run(self, tcpdump: str) -> None:
         port = self._port
         try:
-            while not self._stop_flag.is_set():
-                # timeout=1 so the stop flag is checked every second
-                sniff(
-                    filter=f"tcp port {port}",
-                    prn=self._handle_packet,
-                    store=False,
-                    timeout=1,
-                )
+            self._proc = subprocess.Popen(
+                [
+                    tcpdump,
+                    "-l",         # line-buffered stdout — essential for low latency
+                    "-n",         # no DNS resolution
+                    "-A",         # print payload as ASCII
+                    "-q",         # quiet (compact packet header)
+                    "-i", "any",  # all interfaces (loopback + ethernet)
+                    f"tcp port {port}",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
         except PermissionError:
-            self._log_privilege_error()
+            self._log_priv_error()
+            return
         except Exception as e:
-            if "Operation not permitted" in str(e) or "Permission denied" in str(e):
-                self._log_privilege_error()
-            else:
-                logger.error(f"HTTP sniffer error: {e}", exc_info=True)
+            logger.error(f"HTTP sniffer: failed to launch tcpdump: {e}")
+            self.available = False
+            return
 
-    def _log_privilege_error(self) -> None:
+        # Give tcpdump 300 ms to start; check for immediate exit (e.g. permission error)
+        time.sleep(0.3)
+        if self._proc.poll() is not None:
+            err = self._proc.stderr.read().decode(errors="replace").lower()
+            if "permission" in err or "not permitted" in err:
+                self._log_priv_error()
+            else:
+                logger.error(f"HTTP sniffer: tcpdump exited unexpectedly: {err[:200]}")
+                self.available = False
+            return
+
+        logger.info(f"HTTP sniffer: tcpdump running (pid {self._proc.pid})")
+
+        try:
+            for raw in self._proc.stdout:
+                if self._stop_flag.is_set():
+                    break
+                line = raw.decode("latin-1", errors="replace")
+
+                # Count SSE token events: each "data: {" ≈ 1 output token
+                if "data: {" in line:
+                    self._store.record_network_token_chunk(line.count("data: {"))
+
+                # Stream finished → increment request counter
+                if "data: [DONE]" in line:
+                    self._store.record_network_request_complete()
+
+        except Exception as e:
+            logger.debug(f"HTTP sniffer read loop: {e}")
+        finally:
+            self._kill_proc()
+
+    def _log_priv_error(self) -> None:
         self.available = False
         self.privileged = False
         logger.error(
-            "HTTP sniffer: insufficient privileges (CAP_NET_RAW required). "
-            "Re-run the installer to restore: sudo bash install.sh --upgrade"
+            "HTTP sniffer: tcpdump permission denied — "
+            "run: sudo setcap cap_net_raw+eip $(which tcpdump)"
         )
-
-    # ── Packet handler ───────────────────────────────────────────────────────
-
-    def _handle_packet(self, pkt) -> None:  # noqa: C901
-        try:
-            from scapy.all import IP, TCP, Raw
-            if not pkt.haslayer(TCP) or not pkt.haslayer(IP):
-                return
-
-            tcp = pkt[TCP]
-            port = self._port
-
-            # New TCP connection: SYN without ACK (flags == 0x002)
-            if tcp.flags == 0x002 and tcp.dport == port:
-                key = (pkt[IP].src, tcp.sport)
-                with self._conn_lock:
-                    self._connections[key] = _ConnState()
-                return
-
-            # Only care about server→client payload from here on
-            if tcp.sport != port or not pkt.haslayer(Raw):
-                return
-
-            payload: bytes = pkt[Raw].load
-            client_key = (pkt[IP].dst, tcp.dport)
-
-            with self._conn_lock:
-                state = self._connections.get(client_key)
-
-            # Count SSE token events: each b"data: {" ≈ 1 output token
-            token_count = payload.count(b"data: {")
-            if token_count > 0:
-                # First token in this connection → record TTFT
-                if state and not state.first_token_seen:
-                    # Double-check under lock to avoid a race
-                    with self._conn_lock:
-                        if not state.first_token_seen:
-                            state.first_token_seen = True
-                            ttft = time.time() - state.start_time
-                    self._store.record_network_first_token(ttft)
-                self._store.record_network_token_chunk(token_count)
-
-            # Stream done → request complete
-            if b"data: [DONE]" in payload:
-                self._store.record_network_request_complete()
-                with self._conn_lock:
-                    self._connections.pop(client_key, None)
-
-        except Exception as e:
-            logger.debug(f"HTTP sniffer packet handler: {e}")

@@ -126,18 +126,24 @@ install_python_deps() {
 }
 
 grant_net_raw() {
-    # scapy needs CAP_NET_RAW to open raw sockets for the HTTP sniffer.
-    # setcap must target the real binary, not the venv symlink.
-    PYTHON_BIN=$(readlink -f "$VENV_DIR/bin/python3")
+    # The HTTP sniffer runs tcpdump as a subprocess; tcpdump needs CAP_NET_RAW.
     # setcap lives in /usr/sbin on Debian/Ubuntu which may not be in PATH
     # even under sudo depending on sudoers secure_path setting.
+    TCPDUMP_BIN=$(command -v tcpdump 2>/dev/null \
+        || { ls /usr/bin/tcpdump /usr/sbin/tcpdump 2>/dev/null | head -1; })
     SETCAP_BIN=$(command -v setcap 2>/dev/null || echo /usr/sbin/setcap)
+
+    if [ -z "$TCPDUMP_BIN" ] || [ ! -x "$TCPDUMP_BIN" ]; then
+        print_warning "tcpdump not found — network sniffer disabled (install: apt install tcpdump)"
+        return
+    fi
+
     if [ -x "$SETCAP_BIN" ]; then
-        "$SETCAP_BIN" cap_net_raw+eip "$PYTHON_BIN" && \
-            print_success "cap_net_raw granted to $PYTHON_BIN (network sniffer enabled)" || \
-            print_warning "setcap failed — network sniffer will be disabled (run manually: sudo setcap cap_net_raw+eip $PYTHON_BIN)"
+        "$SETCAP_BIN" cap_net_raw+eip "$TCPDUMP_BIN" && \
+            print_success "cap_net_raw granted to $TCPDUMP_BIN (network sniffer enabled)" || \
+            print_warning "setcap failed — run manually: sudo setcap cap_net_raw+eip $TCPDUMP_BIN"
     else
-        print_warning "setcap not found (install libcap2-bin) — network sniffer will be disabled"
+        print_warning "setcap not found (install libcap2-bin) — run manually: sudo setcap cap_net_raw+eip $TCPDUMP_BIN"
     fi
 }
 

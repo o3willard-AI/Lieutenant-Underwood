@@ -7,6 +7,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [0.8.7] - 2026-05-20
+
+### Fixed
+- **Network sniffer replaced: scapy → tcpdump subprocess** — the in-process scapy approach introduced in v0.8.4 caused severe network throughput degradation on the host (observed: ~366 bytes/sec HF downloads, agent inference timeouts). Two root causes confirmed on live server:
+  1. `AF_PACKET/ETH_P_ALL` socket — the kernel delivers a copy of every ethernet frame to the socket for BPF evaluation, adding per-packet overhead to all traffic on the interface, not just port 1234 traffic.
+  2. GIL contention — scapy's packet callback running in a Python thread starved the asyncio event loop, throttling httpx downloads via TCP receive-window starvation.
+  The sniffer now spawns `tcpdump` as a child process. tcpdump is a C binary with its own memory space (no shared GIL), uses efficient kernel BPF (only matching packets reach userspace), and has negligible impact on host network performance.
+- **scapy removed from dependencies** — no longer installed by the venv. Existing installations can remove it with `pip uninstall scapy` if desired.
+- **install.sh `grant_net_raw` now targets tcpdump** instead of the Python binary. `cap_net_raw` is granted to `$(which tcpdump)` (resolves to `/usr/bin/tcpdump` on Ubuntu).
+
+### Notes
+- `sudo setcap cap_net_raw+eip $(which tcpdump)` is run automatically by `install.sh --upgrade`.
+- The Python binary `cap_net_raw` granted in v0.8.5/v0.8.6 can be safely removed from existing installs: `sudo setcap -r $(readlink -f /opt/lieutenant-underwood/venv/bin/python3)`
+
+---
+
 ## [0.8.6] - 2026-05-20
 
 ### Fixed

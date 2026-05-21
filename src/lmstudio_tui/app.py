@@ -161,8 +161,8 @@ class LMStudioApp(App):
         if not self._http_sniffer.start(port):
             if not self._http_sniffer.available:
                 logger.warning(
-                    "Network sniffer unavailable — re-run installer to fix: "
-                    "sudo bash install.sh --upgrade"
+                    "Network sniffer unavailable — tcpdump not found or no cap_net_raw. "
+                    "Fix: sudo setcap cap_net_raw+eip $(which tcpdump)"
                 )
         self.run_worker(self._port_watch_worker(), name="port_watcher")
 
