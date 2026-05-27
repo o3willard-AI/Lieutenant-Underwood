@@ -22,17 +22,13 @@ Grant:    sudo setcap cap_net_raw+eip $(which tcpdump)
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import threading
 import time
 from typing import Optional
-
-_USAGE_RE = re.compile(r'"usage"\s*:\s*(\{[^}]+\})')
 
 logger = logging.getLogger(__name__)
 
@@ -159,40 +155,34 @@ class HTTPSniffer:
 
         logger.info(f"HTTP sniffer: tcpdump running (pid {self._proc.pid})")
 
+        req_start: Optional[float] = None
+        first_token_seen = False
+
         try:
             for raw in self._proc.stdout:
                 if self._stop_flag.is_set():
                     break
                 line = raw.decode("latin-1", errors="replace")
 
+                # Detect new chat completion request (client→server direction)
+                if "/v1/chat/completions" in line:
+                    req_start = time.time()
+                    first_token_seen = False
+
                 # Count SSE token events: each "data: {" ≈ 1 output token
                 if "data: {" in line:
+                    # First token of this request → measure TTFT
+                    if req_start is not None and not first_token_seen:
+                        ttft = time.time() - req_start
+                        self._store.record_network_first_token(ttft)
+                        first_token_seen = True
                     self._store.record_network_token_chunk(line.count("data: {"))
 
-                # Extract context usage from the final chunk that carries "usage"
-                if '"total_tokens"' in line:
-                    m = _USAGE_RE.search(line)
-                    if m:
-                        try:
-                            usage = json.loads(m.group(1))
-                            total = usage.get("total_tokens", 0)
-                            if total > 0:
-                                context_size = 0
-                                for model in self._store.models.value:
-                                    if model.loaded:
-                                        context_size = (
-                                            model.loaded_context_length
-                                            or model.max_context_length
-                                            or 0
-                                        )
-                                        break
-                                self._store.record_network_context_usage(total, context_size)
-                        except Exception:
-                            pass
-
-                # Stream finished → increment request counter
+                # Stream finished → increment request counter and reset state
                 if "data: [DONE]" in line:
                     self._store.record_network_request_complete()
+                    req_start = None
+                    first_token_seen = False
 
         except Exception as e:
             logger.debug(f"HTTP sniffer read loop: {e}")

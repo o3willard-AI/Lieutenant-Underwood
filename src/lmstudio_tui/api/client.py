@@ -266,7 +266,6 @@ class LMStudioClient:
             "messages": messages,
             "temperature": temperature,
             "stream": stream,
-            "stream_options": {"include_usage": True},
         }
         if max_tokens > 0:
             payload["max_tokens"] = max_tokens

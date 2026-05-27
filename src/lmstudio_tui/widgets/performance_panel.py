@@ -37,11 +37,6 @@ class PerformancePanel(Container):
         height: auto;
         padding: 0 1;
     }
-    PerformancePanel Static.context-line {
-        width: 100%;
-        height: 1;
-        margin-top: 1;
-    }
     """
 
     def __init__(self, **kwargs):
@@ -53,7 +48,6 @@ class PerformancePanel(Container):
         self._ttft_widget = None
         self._req_widget = None
         self._tok_widget = None
-        self._ctx_widget = None
 
     def compose(self):
         yield Static("⚡ PERFORMANCE", classes="title")
@@ -70,8 +64,6 @@ class PerformancePanel(Container):
             yield self._req_widget
             self._tok_widget = Static("", classes="stat", id="perf_tok")
             yield self._tok_widget
-        self._ctx_widget = Static("", classes="context-line", id="perf_ctx")
-        yield self._ctx_widget
 
     def on_mount(self) -> None:
         self._refresh_display()
@@ -116,20 +108,3 @@ class PerformancePanel(Container):
         if self._tok_widget:
             self._tok_widget.update(f"[dim]Tokens out[/dim]\n{m.total_tokens_out:,}")
 
-        if self._ctx_widget:
-            if m.last_context_size > 0 and m.last_tokens_used > 0:
-                pct = min(100.0, m.last_tokens_used / m.last_context_size * 100)
-                filled = int(pct / 5)
-                bar = "█" * filled + "░" * (20 - filled)
-                if pct < 70:
-                    color = "$success"
-                elif pct < 90:
-                    color = "$warning"
-                else:
-                    color = "$error"
-                self._ctx_widget.update(
-                    f"[dim]Context:[/dim] [{color}]{m.last_tokens_used:,} / "
-                    f"{m.last_context_size:,} tokens  {pct:.0f}%  {bar}[/]"
-                )
-            else:
-                self._ctx_widget.update("[dim]Context: — (no requests yet)[/dim]")
