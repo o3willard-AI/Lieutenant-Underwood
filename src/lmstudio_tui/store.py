@@ -261,6 +261,8 @@ class RootStore:
                     cls._instance._last_avg_gpu_util: float = 0.0
                     cls._instance._calibration_ratio: float = 0.0
                     cls._instance._tui_request_active: bool = False
+                    cls._instance._active_seconds: float = 0.0
+                    cls._instance._last_cpu_sample_time: Optional[float] = None
         return cls._instance
 
     def __init__(self) -> None:
@@ -720,6 +722,20 @@ class RootStore:
         else:
             self._calibration_ratio = 0.8 * self._calibration_ratio + 0.2 * new_ratio
 
+    def record_cpu_lms_activity(self, lms_cpu_pct: float) -> None:
+        """Accumulate active seconds when LMS CPU usage exceeds 10%.
+
+        Called each CPU poll cycle.  Only time spent above the threshold
+        contributes to the TPS average denominator, so idle periods between
+        inference runs don't dilute the average.
+        """
+        now = time.time()
+        if self._last_cpu_sample_time is not None:
+            delta = now - self._last_cpu_sample_time
+            if lms_cpu_pct > 10.0:
+                self._active_seconds += delta
+        self._last_cpu_sample_time = now
+
     # ── Network sniffer hooks ────────────────────────────────────────────────
     # These are called from the HTTPSniffer background thread for external
     # clients.  All three are no-ops when a TUI chat is active to avoid
@@ -751,8 +767,11 @@ class RootStore:
         cutoff = now - 5.0
         self._token_timestamps = [t for t in self._token_timestamps if t >= cutoff]
         tps_current = len(self._token_timestamps) / 5.0
-        elapsed = max(1.0, now - self._session_start_time)
-        tps_average = self._total_tokens / elapsed
+        tps_average = (
+            self._total_tokens / self._active_seconds
+            if self._active_seconds > 0.0
+            else 0.0
+        )
         tps_is_estimated = False
 
         # If no TUI chat is active but GPU is busy, estimate TPS from calibration ratio

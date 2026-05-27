@@ -276,6 +276,7 @@ class LMStudioApp(App):
                 metrics = monitor.get_metrics()
                 self.store.cpu_metrics.value = metrics
                 self.store.cpu_error.value = None
+                self.store.record_cpu_lms_activity(metrics.cpu_lmstudio_pct)
             except Exception as e:
                 self.store.cpu_error.value = str(e)
 
