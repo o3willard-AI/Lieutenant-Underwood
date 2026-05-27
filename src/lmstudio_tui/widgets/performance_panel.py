@@ -117,8 +117,8 @@ class PerformancePanel(Container):
             self._tok_widget.update(f"[dim]Tokens out[/dim]\n{m.total_tokens_out:,}")
 
         if self._ctx_widget:
-            if m.last_context_size > 0 and m.last_prompt_tokens > 0:
-                pct = min(100.0, m.last_prompt_tokens / m.last_context_size * 100)
+            if m.last_context_size > 0 and m.last_tokens_used > 0:
+                pct = min(100.0, m.last_tokens_used / m.last_context_size * 100)
                 filled = int(pct / 5)
                 bar = "█" * filled + "░" * (20 - filled)
                 if pct < 70:
@@ -128,7 +128,7 @@ class PerformancePanel(Container):
                 else:
                     color = "$error"
                 self._ctx_widget.update(
-                    f"[dim]Context:[/dim] [{color}]{m.last_prompt_tokens:,} / "
+                    f"[dim]Context:[/dim] [{color}]{m.last_tokens_used:,} / "
                     f"{m.last_context_size:,} tokens  {pct:.0f}%  {bar}[/]"
                 )
             else:

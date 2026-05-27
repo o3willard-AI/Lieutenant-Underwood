@@ -22,13 +22,17 @@ Grant:    sudo setcap cap_net_raw+eip $(which tcpdump)
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
 from typing import Optional
+
+_USAGE_RE = re.compile(r'"usage"\s*:\s*(\{[^}]+\})')
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +168,27 @@ class HTTPSniffer:
                 # Count SSE token events: each "data: {" ≈ 1 output token
                 if "data: {" in line:
                     self._store.record_network_token_chunk(line.count("data: {"))
+
+                # Extract context usage from the final chunk that carries "usage"
+                if '"total_tokens"' in line:
+                    m = _USAGE_RE.search(line)
+                    if m:
+                        try:
+                            usage = json.loads(m.group(1))
+                            total = usage.get("total_tokens", 0)
+                            if total > 0:
+                                context_size = 0
+                                for model in self._store.models.value:
+                                    if model.loaded:
+                                        context_size = (
+                                            model.loaded_context_length
+                                            or model.max_context_length
+                                            or 0
+                                        )
+                                        break
+                                self._store.record_network_context_usage(total, context_size)
+                        except Exception:
+                            pass
 
                 # Stream finished → increment request counter
                 if "data: [DONE]" in line:

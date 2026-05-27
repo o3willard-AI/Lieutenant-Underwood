@@ -55,6 +55,7 @@ class LMStudioClient:
             timeout=self.timeout,
             headers=headers,
         )
+        self.last_usage: dict = {}
 
     @classmethod
     def from_config(cls, config: ServerConfig) -> "LMStudioClient":
@@ -259,11 +260,13 @@ class LMStudioClient:
         Raises:
             httpx.HTTPError: If the request fails.
         """
+        self.last_usage = {}
         payload: dict[str, Any] = {
             "model": model_id,
             "messages": messages,
             "temperature": temperature,
             "stream": stream,
+            "stream_options": {"include_usage": True},
         }
         if max_tokens > 0:
             payload["max_tokens"] = max_tokens
@@ -289,6 +292,8 @@ class LMStudioClient:
 
                     try:
                         chunk = json.loads(data)
+                        if chunk.get("usage"):
+                            self.last_usage = chunk["usage"]
                         choices = chunk.get("choices", [])
                         if choices:
                             delta = choices[0].get("delta", {})

@@ -458,18 +458,15 @@ class ChatPanel(Container):
             )
             try:
                 await self._current_stream_task
-                # Stream completed normally — record completion metrics
-                prompt_tokens = sum(
-                    len(m.get("content", "")) // 4
-                    for m in conversation
-                    if m.get("role") != "system"
-                )
+                # Stream completed — get accurate token counts from API usage object
+                usage = client.last_usage
+                tokens_used = usage.get("total_tokens", 0)
                 context_size = 0
                 for m in self._store.models.value:
                     if m.id == active_model and m.loaded:
                         context_size = m.loaded_context_length or m.max_context_length or 0
                         break
-                self._store.record_request_complete(prompt_tokens, context_size)
+                self._store.record_request_complete(tokens_used, context_size)
             except asyncio.CancelledError:
                 logger.warning("Chat stream cancelled")
                 self._chat_history[assistant_index] = (

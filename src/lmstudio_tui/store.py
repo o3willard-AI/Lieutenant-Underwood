@@ -177,7 +177,7 @@ class InferenceMetrics:
     ttft_last3: list[float] = field(default_factory=list)
     total_requests: int = 0
     total_tokens_out: int = 0
-    last_prompt_tokens: int = 0
+    last_tokens_used: int = 0
     last_context_size: int = 0
     tps_is_estimated: bool = False
 
@@ -255,7 +255,7 @@ class RootStore:
                     cls._instance._ttft_history: list[float] = []
                     cls._instance._total_tokens: int = 0
                     cls._instance._total_requests_count: int = 0
-                    cls._instance._last_prompt_tokens: int = 0
+                    cls._instance._last_tokens_used: int = 0
                     cls._instance._last_context_size: int = 0
                     cls._instance._request_start_time: Optional[float] = None
                     cls._instance._last_avg_gpu_util: float = 0.0
@@ -690,12 +690,14 @@ class RootStore:
         self._total_tokens += count
 
     def record_request_complete(
-        self, prompt_tokens: int = 0, context_size: int = 0
+        self, tokens_used: int = 0, context_size: int = 0
     ) -> None:
         """Mark a request as successfully completed."""
         self._total_requests_count += 1
-        self._last_prompt_tokens = prompt_tokens
-        self._last_context_size = context_size
+        if tokens_used > 0:
+            self._last_tokens_used = tokens_used
+        if context_size > 0:
+            self._last_context_size = context_size
         self._request_start_time = None
         self._tui_request_active = False
 
@@ -761,6 +763,15 @@ class RootStore:
             return
         self._total_requests_count += 1
 
+    def record_network_context_usage(self, total_tokens: int, context_size: int) -> None:
+        """Update context fill stats from usage data seen in sniffer output."""
+        if self._tui_request_active:
+            return
+        if total_tokens > 0:
+            self._last_tokens_used = total_tokens
+        if context_size > 0:
+            self._last_context_size = context_size
+
     def get_inference_metrics(self) -> InferenceMetrics:
         """Compute and return a current snapshot of all inference metrics."""
         now = time.time()
@@ -792,7 +803,7 @@ class RootStore:
             ttft_last3=list(self._ttft_history),
             total_requests=self._total_requests_count,
             total_tokens_out=self._total_tokens,
-            last_prompt_tokens=self._last_prompt_tokens,
+            last_tokens_used=self._last_tokens_used,
             last_context_size=self._last_context_size,
             tps_is_estimated=tps_is_estimated,
         )
