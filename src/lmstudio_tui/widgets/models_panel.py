@@ -366,6 +366,11 @@ class ModelsPanel(Container):
         from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
         self.app.push_screen(ModelBrowserScreen())
 
+    def key_r(self) -> None:
+        """Open the delete model screen."""
+        from lmstudio_tui.screens.delete_model_screen import DeleteModelScreen
+        self.app.push_screen(DeleteModelScreen())
+
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------

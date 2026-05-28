@@ -91,6 +91,7 @@ class LMStudioApp(App):
         ("?", "help", "Help"),
         ("tab", "focus_next", "Next Panel"),
         ("d", "browse_models", "Browse Models"),
+        ("r", "delete_model", "Delete Model"),
     ]
 
     def search_themes(self) -> None:
@@ -360,7 +361,7 @@ class LMStudioApp(App):
     def action_help(self) -> None:
         """Show help."""
         self.notify(
-            "Help: q=quit, Enter=model config/load/unload, Tab=next panel, d=browse, ?=help"
+            "Help: q=quit, Enter=model detail, Tab=next panel, d=browse HF, r=delete model, ?=help"
         )
 
     def action_focus_next(self) -> None:
@@ -371,6 +372,11 @@ class LMStudioApp(App):
         """Open the model browser screen."""
         from lmstudio_tui.screens.model_browser_screen import ModelBrowserScreen
         self.push_screen(ModelBrowserScreen())
+
+    def action_delete_model(self) -> None:
+        """Open the delete model screen."""
+        from lmstudio_tui.screens.delete_model_screen import DeleteModelScreen
+        self.push_screen(DeleteModelScreen())
 
     async def on_shutdown(self) -> None:
         """App shutdown - signal all workers to exit gracefully."""
