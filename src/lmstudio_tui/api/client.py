@@ -108,8 +108,8 @@ class LMStudioClient:
                 model_name = item.get("display_name", model_id)
                 size = item.get("size_bytes", 0)
                 
-                # Get quantization name from object
-                quant_obj = item.get("quantization", {})
+                # Get quantization name from object (field may be null for some models)
+                quant_obj = item.get("quantization") or {}
                 quantization = quant_obj.get("name", "-")
                 
                 max_context = item.get("max_context_length", 0)
