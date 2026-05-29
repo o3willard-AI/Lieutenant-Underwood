@@ -96,9 +96,9 @@ class PerformancePanel(Container):
 
         if self._ttft_widget:
             if m.ttft_last3:
-                avg_ms = sum(m.ttft_last3) / len(m.ttft_last3) * 1000
+                avg_s = sum(m.ttft_last3) / len(m.ttft_last3)
                 n = len(m.ttft_last3)
-                self._ttft_widget.update(f"[dim]TTFT avg[/dim]\n{avg_ms:.0f} ms ({n} req)")
+                self._ttft_widget.update(f"[dim]TTFT avg[/dim]\n{avg_s:.1f}s (last {n})")
             else:
                 self._ttft_widget.update("[dim]TTFT avg[/dim]\n[dim]—[/dim]")
 
