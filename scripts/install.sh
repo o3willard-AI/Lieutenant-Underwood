@@ -83,20 +83,16 @@ download_source() {
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TEMP_DIR"' EXIT
 
-    # Try latest release tarball first, fall back to git clone
-    LATEST_URL=$(curl -sf "https://api.github.com/repos/o3willard-AI/Lieutenant-Underwood/releases/latest" \
-        | grep '"tarball_url"' | cut -d '"' -f 4 || true)
-
-    if [ -n "$LATEST_URL" ]; then
-        curl -sL "$LATEST_URL" -o "$TEMP_DIR/ltu.tar.gz"
-        mkdir -p "$TEMP_DIR/ltu"
-        tar -xzf "$TEMP_DIR/ltu.tar.gz" -C "$TEMP_DIR/ltu" --strip-components=1
-        SOURCE_DIR="$TEMP_DIR/ltu"
-    else
-        print_warning "No release found — cloning master branch..."
-        git clone --depth 1 "$REPO_URL" "$TEMP_DIR/ltu"
-        SOURCE_DIR="$TEMP_DIR/ltu"
+    # Always pull the master branch archive — this is what gets pushed to,
+    # not GitHub Releases (which would pin to the last tagged version).
+    ARCHIVE_URL="https://github.com/o3willard-AI/Lieutenant-Underwood/archive/refs/heads/master.tar.gz"
+    if ! curl -fsSL "$ARCHIVE_URL" -o "$TEMP_DIR/ltu.tar.gz"; then
+        print_error "Failed to download source from GitHub"
+        exit 1
     fi
+    mkdir -p "$TEMP_DIR/ltu"
+    tar -xzf "$TEMP_DIR/ltu.tar.gz" -C "$TEMP_DIR/ltu" --strip-components=1
+    SOURCE_DIR="$TEMP_DIR/ltu"
 
     LTU_VERSION=$(grep '^version' "$SOURCE_DIR/pyproject.toml" | head -1 | cut -d '"' -f 2)
     print_success "Download complete (v${LTU_VERSION})"
