@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.4] - 2026-06-03
+
+### Added
+- **Actual context window and quantization displayed for loaded models** — the MODELS panel now shows a "Ctx" column with the real context window (in K tokens) that LM Studio is serving for each loaded model, sourced from `loaded_instances[].config.context_length` in the `/api/v1/models` response.
+- **Model detail screen shows actual loaded config** — when you open a loaded model's detail screen, three new info rows appear: Quantization (from the model's metadata), Loaded ctx (actual tokens, colour-coded green if it matches the TUI-configured value, orange with a warning if it doesn't), and GPU offload % (when the API reports it).
+- **Pre-load / post-load delta logging** — `store.record_load_request()` captures the requested context length and GPU offload before each TUI-initiated load; after the load succeeds `store.check_and_log_load_delta()` compares them against what LM Studio actually loaded and writes a structured `INFO` line (and a `WARNING` when the context differs) to `app.log`. This provides hard data on whether context overriding is happening in LM Studio or whether the VRAM estimate calculations are at fault.
+- **Toast notification on context mismatch** — if LM Studio loaded a different context window than requested, a warning toast shows the delta in tokens and percentage immediately after loading.
+- `format_context_length(tokens)` utility function in `utils.py` (e.g. 65536 → "64K").
+- `ModelInfo.loaded_gpu_offload` field captures the actual GPU layer fraction reported by the API (when available).
+
+### Notes
+- GPU offload fraction is not currently exposed by LM Studio's REST API; the field will show `None` in logs until LM Studio adds it.
+- Context window values are displayed as binary kibibytes (1K = 1024 tokens), so a 65,536-token window shows as "64K".
+
 All notable changes to Lieutenant-Underwood are documented here.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)

@@ -17,6 +17,7 @@ from textual.widgets import Button, Select, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
+from lmstudio_tui.utils import format_context_length
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,10 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
     }
     ModelDetailScreen Static.status-standby {
         color: $text-muted;
+    }
+    ModelDetailScreen Static.status-warning {
+        color: $warning;
+        text-style: bold;
     }
     ModelDetailScreen Static.error {
         color: $error;
@@ -208,6 +213,32 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                 with Horizontal(classes="info-row"):
                     yield Static("Status:", classes="label")
                     yield Static(status_text, classes=f"value {status_class}")
+
+                # For loaded models: show actual context window and quantization from LM Studio
+                if self._model.loaded:
+                    with Horizontal(classes="info-row"):
+                        yield Static("Quantization:", classes="label")
+                        yield Static(self._model.quantization or "-", classes="value")
+                    if self._model.loaded_context_length > 0:
+                        actual_label = format_context_length(self._model.loaded_context_length)
+                        cfg_ctx = cfg.context_length if cfg and cfg.context_length > 0 else 8192
+                        with Horizontal(classes="info-row"):
+                            yield Static("Loaded ctx:", classes="label")
+                            if self._model.loaded_context_length != cfg_ctx:
+                                cfg_label = format_context_length(cfg_ctx)
+                                yield Static(
+                                    f"{actual_label}  ⚠ TUI configured: {cfg_label}",
+                                    classes="value status-warning",
+                                )
+                            else:
+                                yield Static(actual_label, classes="value status-loaded")
+                    if self._model.loaded_gpu_offload is not None:
+                        with Horizontal(classes="info-row"):
+                            yield Static("GPU offload:", classes="label")
+                            yield Static(
+                                f"{self._model.loaded_gpu_offload * 100:.0f}%",
+                                classes="value",
+                            )
 
                 # Load configuration section
                 yield Static("⚙️  LOAD CONFIGURATION", classes="section-title")
@@ -396,6 +427,11 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
             else:
                 context_length = config.context_length
 
+            # Record what we're requesting so we can compare against what LM Studio actually loads
+            self._store.record_load_request(
+                self.model_id, context_length, config.gpu_offload_percent
+            )
+
             cli = self._store.lms_cli
             if cli:
                 await cli.load_model(
@@ -411,14 +447,32 @@ class ModelDetailScreen(ModalScreen[Optional[str]]):
                     kv_cache_quantization=config.kv_cache_quantization,
                 )
 
-            self._stop_loading()
-            self.dismiss("loaded")
-            self.app.notify(f"Model '{self.model_id}' loaded successfully")
+            # Refresh model list and compute actual vs requested delta BEFORE dismissing
+            delta = None
             try:
                 models = await client.get_models()
                 self._store.models.value = models
+                for m in models:
+                    if m.id == self.model_id:
+                        delta = self._store.check_and_log_load_delta(m)
+                        break
             except Exception:
                 pass
+
+            self._stop_loading()
+            self.app.notify(f"Model '{self.model_id}' loaded successfully")
+
+            if delta and delta["context_delta"] != 0 and delta["actual_context"] > 0:
+                actual_label = format_context_length(delta["actual_context"])
+                req_label = format_context_length(delta["requested_context"])
+                self.app.notify(
+                    f"Context: requested {req_label} → LM Studio loaded {actual_label} "
+                    f"({delta['context_delta']:+,} tokens / {delta['context_delta_pct']:+.1f}%)",
+                    severity="warning",
+                    timeout=12,
+                )
+
+            self.dismiss("loaded")
 
         except asyncio.CancelledError:
             logger.info(f"Load of {self.model_id} cancelled")

@@ -25,6 +25,7 @@ class ModelInfo:
     max_context_length: int = 0
     loaded_context_length: int = 0
     instance_id: Optional[str] = None  # Required for unload
+    loaded_gpu_offload: Optional[float] = None  # Actual GPU layer fraction 0.0–1.0; None if unreported
 
 
 class LMStudioClient:
@@ -119,11 +120,21 @@ class LMStudioClient:
                 loaded = len(loaded_instances) > 0
                 instance_id = None
                 loaded_context = 0
-                
+                loaded_gpu_offload = None
+
                 if loaded and loaded_instances:
                     instance_id = loaded_instances[0].get("id")
                     config = loaded_instances[0].get("config", {})
                     loaded_context = config.get("context_length", 0)
+                    # Try several field names LM Studio may use for GPU offload fraction
+                    for _key in ("gpu_offload", "gpuOffload", "gpu_layers_fraction", "gpu"):
+                        _raw = config.get(_key)
+                        if _raw is not None:
+                            try:
+                                loaded_gpu_offload = float(_raw)
+                            except (ValueError, TypeError):
+                                pass
+                            break
 
                 models.append(
                     ModelInfo(
@@ -135,6 +146,7 @@ class LMStudioClient:
                         max_context_length=max_context,
                         loaded_context_length=loaded_context,
                         instance_id=instance_id,
+                        loaded_gpu_offload=loaded_gpu_offload,
                     )
                 )
 

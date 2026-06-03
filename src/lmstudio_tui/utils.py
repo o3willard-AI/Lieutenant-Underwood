@@ -5,6 +5,15 @@ from __future__ import annotations
 import re
 
 
+def format_context_length(tokens: int) -> str:
+    """Format a token count as a compact human-readable string (e.g. 65536 → '64K')."""
+    if tokens <= 0:
+        return "-"
+    if tokens >= 1024:
+        return f"{tokens // 1024}K"
+    return str(tokens)
+
+
 def format_size(size_bytes: int) -> str:
     """Format a byte count into a human-readable string.
 

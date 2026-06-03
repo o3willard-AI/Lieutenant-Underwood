@@ -17,7 +17,7 @@ from textual.widgets import Button, DataTable, Static
 
 from lmstudio_tui.api.client import ModelInfo
 from lmstudio_tui.store import get_store
-from lmstudio_tui.utils import extract_quantization, format_size
+from lmstudio_tui.utils import extract_quantization, format_context_length, format_size
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class ModelsPanel(Container):
         yield self._loading_static
 
         self._table = DataTable()
-        self._table.add_columns("Status", "Size", "Model Name")
+        self._table.add_columns("Status", "Ctx", "Size", "Model Name")
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
@@ -329,13 +329,18 @@ class ModelsPanel(Container):
             else:
                 status = "○ Standby"
 
+            ctx_str = (
+                format_context_length(model.loaded_context_length)
+                if model.loaded and model.loaded_context_length > 0
+                else "-"
+            )
             size_str = format_size(model.size)
 
             display_name = model.name or model.id
             if len(display_name) > 30:
                 display_name = display_name[:27] + "..."
 
-            self._table.add_row(status, size_str, display_name)
+            self._table.add_row(status, ctx_str, size_str, display_name)
             self._model_ids.append(model.id)
 
     def _get_selected_model_id(self) -> Optional[str]:

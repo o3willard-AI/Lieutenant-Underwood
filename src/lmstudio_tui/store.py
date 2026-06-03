@@ -259,6 +259,8 @@ class RootStore:
                     cls._instance._tui_request_active: bool = False
                     cls._instance._active_seconds: float = 0.0
                     cls._instance._last_cpu_sample_time: Optional[float] = None
+                    # Per-model load requests: model_id → {context_length, gpu_offload_percent}
+                    cls._instance._requested_loads: dict = {}
         return cls._instance
 
     def __init__(self) -> None:
@@ -752,6 +754,67 @@ class RootStore:
         if self._tui_request_active:
             return
         self._total_requests_count += 1
+
+    # ── Load request / delta tracking ───────────────────────────────────────
+
+    def record_load_request(self, model_id: str, context_length: int, gpu_offload_percent: int) -> None:
+        """Record what context length and GPU offload were requested before loading."""
+        self._requested_loads[model_id] = {
+            "context_length": context_length,
+            "gpu_offload_percent": gpu_offload_percent,
+        }
+        offload_str = "max" if gpu_offload_percent < 0 else f"{gpu_offload_percent}%"
+        logger.info(
+            f"Load request [{model_id}]: context={context_length}, gpu_offload={offload_str}"
+        )
+
+    def check_and_log_load_delta(self, model: "ModelInfo") -> Optional[dict]:  # type: ignore[name-defined]
+        """Compare the actual loaded config against the recorded request.
+
+        Consumes the stored request (one-shot) and logs the delta.  Returns a
+        dict with delta fields, or None if no request was recorded for this model.
+        A warning is emitted whenever the context window differs from what was
+        requested — this helps distinguish over-estimation in TUI calculations
+        from LM Studio silently overriding the requested context.
+        """
+        req = self._requested_loads.pop(model.id, None)
+        if req is None or not model.loaded:
+            return None
+
+        actual_ctx = model.loaded_context_length
+        req_ctx = req["context_length"]
+        req_offload_pct = req["gpu_offload_percent"]
+        actual_offload = model.loaded_gpu_offload
+
+        ctx_delta = actual_ctx - req_ctx
+        ctx_pct = (ctx_delta / req_ctx * 100) if req_ctx > 0 else 0.0
+
+        offload_req_str = "max" if req_offload_pct < 0 else f"{req_offload_pct}%"
+        offload_actual_str = (
+            f"{actual_offload * 100:.0f}%" if actual_offload is not None else "not reported by API"
+        )
+        logger.info(
+            f"Load delta [{model.id}]: "
+            f"context req={req_ctx} actual={actual_ctx} delta={ctx_delta:+d} ({ctx_pct:+.1f}%); "
+            f"gpu_offload req={offload_req_str} actual={offload_actual_str}"
+        )
+
+        if ctx_delta != 0:
+            direction = "under" if ctx_delta < 0 else "over"
+            logger.warning(
+                f"Context mismatch [{model.id}]: LM Studio loaded {actual_ctx} tokens "
+                f"vs requested {req_ctx} ({direction} by {abs(ctx_delta):,} tokens / {abs(ctx_pct):.1f}%)"
+            )
+
+        return {
+            "model_id": model.id,
+            "requested_context": req_ctx,
+            "actual_context": actual_ctx,
+            "context_delta": ctx_delta,
+            "context_delta_pct": ctx_pct,
+            "requested_offload_pct": req_offload_pct,
+            "actual_offload": actual_offload,
+        }
 
     def get_inference_metrics(self) -> InferenceMetrics:
         """Compute and return a current snapshot of all inference metrics."""
