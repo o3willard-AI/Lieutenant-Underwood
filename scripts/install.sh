@@ -85,7 +85,8 @@ download_source() {
 
     # Always pull the master branch archive — this is what gets pushed to,
     # not GitHub Releases (which would pin to the last tagged version).
-    ARCHIVE_URL="https://github.com/o3willard-AI/Lieutenant-Underwood/archive/refs/heads/master.tar.gz"
+    # The ?t= timestamp busts GitHub's CDN cache so we always get the freshest commit.
+    ARCHIVE_URL="https://github.com/o3willard-AI/Lieutenant-Underwood/archive/refs/heads/master.tar.gz?t=$(date +%s)"
     if ! curl -fsSL "$ARCHIVE_URL" -o "$TEMP_DIR/ltu.tar.gz"; then
         print_error "Failed to download source from GitHub"
         exit 1
