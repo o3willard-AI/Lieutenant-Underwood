@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.6] - 2026-06-03
+
+### Fixed
+- **Installer always pulled the old GitHub Release instead of the latest code** — `download_source()` called `releases/latest` which returns the last *published* GitHub Release tag (was pinned at v0.9.3). Commits pushed directly to `master` without creating a Release were invisible. Changed to download the `master` branch archive directly (`/archive/refs/heads/master.tar.gz`), so every push to `master` is immediately installable without a separate release-publish step.
+
 ## [0.9.5] - 2026-06-03
 
 ### Fixed
