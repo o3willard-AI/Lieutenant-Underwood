@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.5] - 2026-06-03
+
+### Fixed
+- **MODELS panel "Ctx" column was invisible** — the 3-character header `"Ctx"` caused Textual's DataTable to auto-size the column to 3 chars wide, resulting in `"..."` for all values. Renamed to `"Ctx In/Out"` (10 chars), which forces a readable column width.
+- **Column now shows both configured and actual context** — format is `cfg/actual` (e.g. `"64K/64K"` when matching, `"128K/64K ⚠"` when LM Studio overrode the requested window). "In" is the TUI-configured context length; "Out" is the value LM Studio reports via the API after loading. Unloaded models show `"8K/-"`.
+
 ## [0.9.4] - 2026-06-03
 
 ### Added

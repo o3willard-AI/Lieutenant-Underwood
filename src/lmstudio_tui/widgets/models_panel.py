@@ -162,7 +162,7 @@ class ModelsPanel(Container):
         yield self._loading_static
 
         self._table = DataTable()
-        self._table.add_columns("Status", "Ctx", "Size", "Model Name")
+        self._table.add_columns("Status", "Ctx In/Out", "Size", "Model Name")
         self._table.cursor_type = "row"
         self._table.zebra_stripes = True
         yield self._table
@@ -329,11 +329,16 @@ class ModelsPanel(Container):
             else:
                 status = "○ Standby"
 
-            ctx_str = (
-                format_context_length(model.loaded_context_length)
-                if model.loaded and model.loaded_context_length > 0
-                else "-"
-            )
+            # "In" = what the TUI is configured to request; "Out" = what LM Studio actually loaded
+            cfg = self._store.model_configs.value.get(model.id)
+            cfg_ctx = cfg.context_length if cfg and cfg.context_length > 0 else 8192
+            in_label = format_context_length(cfg_ctx)
+            if model.loaded and model.loaded_context_length > 0:
+                out_label = format_context_length(model.loaded_context_length)
+                mismatch = model.loaded_context_length != cfg_ctx
+                ctx_str = f"{in_label}/{out_label} ⚠" if mismatch else f"{in_label}/{out_label}"
+            else:
+                ctx_str = f"{in_label}/-"
             size_str = format_size(model.size)
 
             display_name = model.name or model.id
