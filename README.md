@@ -42,7 +42,7 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 |-------------|-------|
 | **Linux** | Ubuntu 20.04+ recommended (tested on Ubuntu 24.04) |
 | **Python 3.9+** | With `python3-venv` (`sudo apt install python3-venv`) |
-| **curl** | For downloading the installer and source |
+| **git** | For cloning the installer and source (avoids CDN caching issues) |
 | **libcap2-bin** | For `setcap` (grants `CAP_NET_RAW` to tcpdump); `sudo apt install libcap2-bin` |
 | **tcpdump** | For the passive network sniffer; `sudo apt install tcpdump` |
 | **LM Studio** | Installed and accessible; the `lms` CLI at `~/.lmstudio/bin/lms` |
@@ -57,11 +57,9 @@ All Python dependencies (Textual, httpx, psutil, pynvml, tomli, dacite, etc.) ar
 ### Fresh Install
 
 ```bash
-# Download the installer
-curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
-
-# Install (requires sudo)
-sudo bash install.sh
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh
+rm -rf /tmp/ltu
 ```
 
 The installer will:
@@ -85,14 +83,10 @@ lmstui
 
 ### Upgrade
 
-The install script must be re-downloaded before upgrading, as it is not stored in `/opt/lieutenant-underwood/` after a fresh install.
-
 ```bash
-# Re-download the latest installer
-curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
-
-# Upgrade in place (requires sudo)
-sudo bash install.sh --upgrade
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh --upgrade
+rm -rf /tmp/ltu
 ```
 
 This will:
@@ -110,11 +104,9 @@ Your config at `~/.config/lmstudio-tui/config.toml` is **not touched**.
 ### Uninstall
 
 ```bash
-# Re-download the installer
-curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
-
-# Uninstall (requires sudo)
-sudo bash install.sh --uninstall
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh --uninstall
+rm -rf /tmp/ltu
 ```
 
 If the installer placed an `uninstall.sh` in `/opt/lieutenant-underwood/` you can also run it directly:
