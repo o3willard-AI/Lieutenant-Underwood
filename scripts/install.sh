@@ -83,16 +83,13 @@ download_source() {
     TEMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TEMP_DIR"' EXIT
 
-    # Always pull the master branch archive — this is what gets pushed to,
-    # not GitHub Releases (which would pin to the last tagged version).
-    # The ?t= timestamp busts GitHub's CDN cache so we always get the freshest commit.
-    ARCHIVE_URL="https://github.com/o3willard-AI/Lieutenant-Underwood/archive/refs/heads/master.tar.gz?t=$(date +%s)"
-    if ! curl -fsSL "$ARCHIVE_URL" -o "$TEMP_DIR/ltu.tar.gz"; then
-        print_error "Failed to download source from GitHub"
+    # git clone --depth 1 always fetches the live HEAD of master.
+    # Archive tarballs are CDN-cached by GitHub and can serve stale content
+    # even after a push; a shallow clone bypasses that entirely.
+    if ! git clone --depth 1 --quiet "$REPO_URL.git" "$TEMP_DIR/ltu" 2>/dev/null; then
+        print_error "Failed to clone repository from GitHub"
         exit 1
     fi
-    mkdir -p "$TEMP_DIR/ltu"
-    tar -xzf "$TEMP_DIR/ltu.tar.gz" -C "$TEMP_DIR/ltu" --strip-components=1
     SOURCE_DIR="$TEMP_DIR/ltu"
 
     LTU_VERSION=$(grep '^version' "$SOURCE_DIR/pyproject.toml" | head -1 | cut -d '"' -f 2)
