@@ -28,11 +28,33 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 
 ---
 
-## Screenshot
+## Screenshots
 
-![Lieutenant-Underwood — live on a 4× RTX 3060 server](screenshots/dashboard.png)
+### Main Dashboard — active inference
+![Main dashboard with 3× RTX 3060 and active model](screenshots/putty_0R6QZgsmJ6.png)
 
-*Live dashboard: 4× NVIDIA RTX 3060 (48 GB VRAM total) · Qwen3 Coder 30B loaded · lms CLI active*
+*3× NVIDIA RTX 3060 (12 GB each) · Qwen3.6 35B A3B UD loaded · live inference at 21.2 t/s · TTFT avg 2564 ms across 39 requests · CHAT panel active*
+
+---
+
+### Model Download in Progress
+![DOWNLOADING panel showing Qwen3-Coder-30B at 9%](screenshots/putty_3g2lr3hjix.png)
+
+*Hugging Face download via the `d` key — Qwen3-Coder-30B-A3B-Instruct at 9% (1488/16847 MB @ 7.7 MB/s) · DOWNLOADING panel shows filename, progress, elapsed time, and a Cancel button · Ctx In/Out column visible in the MODELS table*
+
+---
+
+### Delete Model Screen
+![DELETE MODEL overlay with LOADED status indicators](screenshots/putty_Lo1Y8S3GZI.png)
+
+*`r` key opens the DELETE MODEL screen — lists all downloaded models with publisher, size, file count, and whether the model is currently LOADED · navigate with arrow keys, Enter to select for deletion, Esc to go back*
+
+---
+
+### Model Details & Load Configuration
+![Model Details screen showing GPU offload, context length, TTL, and memory estimates](screenshots/putty_XySrb9JxZq.png)
+
+*Enter on any model opens the Load Configuration screen — set GPU Layer Offload fraction (Max or a specific %), Context Length token window (slider + dropdown), and Auto-Unload TTL · MEMORY ESTIMATE section shows projected VRAM and RAM usage at Q4_0 / Q8_0 / F16 quantization levels before committing to Load*
 
 ---
 
