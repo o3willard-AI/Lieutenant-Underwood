@@ -64,7 +64,8 @@ Named in the tradition of military brevity: *Lieutenant Underwood* reports for d
 |-------------|-------|
 | **Linux** | Ubuntu 20.04+ recommended (tested on Ubuntu 24.04) |
 | **Python 3.9+** | With `python3-venv` (`sudo apt install python3-venv`) |
-| **git** | For cloning the installer and source (avoids CDN caching issues) |
+| **curl** | For downloading the installer |
+| **git** | Pre-installed on most systems; used by the installer to fetch source |
 | **libcap2-bin** | For `setcap` (grants `CAP_NET_RAW` to tcpdump); `sudo apt install libcap2-bin` |
 | **tcpdump** | For the passive network sniffer; `sudo apt install tcpdump` |
 | **LM Studio** | Installed and accessible; the `lms` CLI at `~/.lmstudio/bin/lms` |
@@ -79,9 +80,8 @@ All Python dependencies (Textual, httpx, psutil, pynvml, tomli, dacite, etc.) ar
 ### Fresh Install
 
 ```bash
-git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
-sudo bash /tmp/ltu/scripts/install.sh
-rm -rf /tmp/ltu
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
+sudo bash install.sh
 ```
 
 The installer will:
@@ -106,9 +106,8 @@ lmstui
 ### Upgrade
 
 ```bash
-git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
-sudo bash /tmp/ltu/scripts/install.sh --upgrade
-rm -rf /tmp/ltu
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
+sudo bash install.sh --upgrade
 ```
 
 This will:
@@ -126,9 +125,8 @@ Your config at `~/.config/lmstudio-tui/config.toml` is **not touched**.
 ### Uninstall
 
 ```bash
-git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
-sudo bash /tmp/ltu/scripts/install.sh --uninstall
-rm -rf /tmp/ltu
+curl -sL https://raw.githubusercontent.com/o3willard-AI/Lieutenant-Underwood/master/scripts/install.sh -o install.sh
+sudo bash install.sh --uninstall
 ```
 
 If the installer placed an `uninstall.sh` in `/opt/lieutenant-underwood/` you can also run it directly:
@@ -426,6 +424,35 @@ Load delta entries are written at `INFO` level on every model load; mismatches a
 ```bash
 grep "Context mismatch" ~/.local/share/lmstudio-tui/app.log
 ```
+
+---
+
+## Troubleshooting: Installer Fetching Wrong Version
+
+GitHub's CDN caches `raw.githubusercontent.com` script files and branch archive tarballs. In rare cases a `curl` download may serve a stale version of `install.sh` even minutes after a new release is pushed. If you see an unexpected version number after upgrading, bypass the CDN entirely by cloning directly from git:
+
+**Fresh install (CDN-bypass):**
+```bash
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh
+rm -rf /tmp/ltu
+```
+
+**Upgrade (CDN-bypass):**
+```bash
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh --upgrade
+rm -rf /tmp/ltu
+```
+
+**Uninstall (CDN-bypass):**
+```bash
+git clone --depth 1 https://github.com/o3willard-AI/Lieutenant-Underwood.git /tmp/ltu
+sudo bash /tmp/ltu/scripts/install.sh --uninstall
+rm -rf /tmp/ltu
+```
+
+> The installer itself uses `git clone --depth 1` internally when downloading application source, so once you have a fresh copy of `install.sh` the source download is always cache-free.
 
 ---
 
